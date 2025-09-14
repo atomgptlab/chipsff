@@ -293,6 +293,7 @@ Please report bugs as Github issues (https://github.com/usnistgov/chipsff/issues
 ## Funding support
 This work was performed with funding from the CHIPS Metrology Program, part of CHIPS for America, National Institute of Standards and Technology, U.S. Department of Commerce.
 
+Note: This project was originally developed under the github.com/usnistgov organization and is now maintained here by the lead developer.
 
 ## Code of conduct
 Please see [Code of conduct](https://github.com/usnistgov/jarvis/blob/master/CODE_OF_CONDUCT.md)
