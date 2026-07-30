@@ -8,7 +8,10 @@ import matplotlib.pyplot as plt
 from ase.eos import EquationOfState
 from ase import Atoms as AseAtoms
 from ase.units import kJ
-from ase.constraints import ExpCellFilter
+try:
+    from ase.filters import ExpCellFilter
+except ImportError:  # older ASE
+    from ase.constraints import ExpCellFilter
 from ase.optimize.fire import FIRE
 import ase.units
 from jarvis.db.figshare import data
@@ -276,7 +279,10 @@ class MaterialsAnalyzer:
 
         # Optional: apply ExpCellFilter for stress/strain relaxation
         if filter_type == "ExpCellFilter":
-            from ase.constraints import ExpCellFilter
+            try:
+                from ase.filters import ExpCellFilter
+            except ImportError:
+                from ase.constraints import ExpCellFilter
             ase_atoms = ExpCellFilter(ase_atoms, constant_volume=constant_volume)
 
         # Run the FIRE optimizer, parsing stdout for the final energy
@@ -1136,7 +1142,10 @@ class MaterialsAnalyzer:
         ase_atoms.calc = self.calculator
 
         if filter_type == "ExpCellFilter":
-            from ase.constraints import ExpCellFilter
+            try:
+                from ase.filters import ExpCellFilter
+            except ImportError:
+                from ase.constraints import ExpCellFilter
             ase_atoms = ExpCellFilter(ase_atoms, constant_volume=constant_volume)
 
         final_energy, nsteps = self.capture_fire_output(ase_atoms, fmax=fmax, steps=steps)
@@ -2221,4 +2230,8 @@ class MaterialsAnalyzer:
             self.output_dir, f"{unique_dir}_error_scorecard.png"
         )
         fig.write_image(fname_plot)
-        fig.show()
+        # Only open an interactive window when explicitly requested; batch /
+        # headless runs would otherwise block on a browser process. The figure
+        # is already persisted to fname_plot above.
+        if os.environ.get("CHIPSFF_SHOW"):
+            fig.show()
