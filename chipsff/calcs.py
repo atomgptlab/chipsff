@@ -44,7 +44,7 @@ def setup_calculator(calculator_type, calculator_settings):
         # Honor optional settings so a custom-trained model directory can be
         # evaluated (e.g. a new default candidate) instead of the shipped
         # model. Falls back to the packaged default when unset.
-        path = calculator_settings.get("path", default_path())
+        path = calculator_settings.get("path") or default_path()
         model_filename = calculator_settings.get(
             "model_filename", "best_model.pt"
         )

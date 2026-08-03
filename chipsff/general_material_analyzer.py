@@ -1778,7 +1778,7 @@ class MaterialsAnalyzer:
         )
         extra_params = {}
         extra_params["alignn_params"] = {}
-        extra_params["alignn_params"]["model_path"] = "ALIGNN_FF_PATH"
+        extra_params["alignn_params"]["model_path"] = ""
 
         wads_zscan = x_zscan.calculate_wad(
             method=config["calculator_method"],

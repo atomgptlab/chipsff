@@ -19,7 +19,10 @@ setup(
         "scipy>=1.6.3",
         "jarvis-tools>=2021.07.19",
         "pydantic_settings",
-        "pandas",  # Any other dependencies can be added here
+        "pandas",
+        "plotly",   # scorecard / EV-curve figures
+        "kaleido",  # static image export for plotly (fig.write_image)
+        "elastic",  # elastic-tensor calculation
         # "alignn",  # Uncomment if alignn becomes a required dependency
     ],
     classifiers=[

@@ -118,7 +118,8 @@ def plot_composite_scorecard(df):
 
     fname_plot = "composite_error_scorecard.png"
     fig.write_image(fname_plot)
-    fig.show()
+    if os.environ.get("CHIPSFF_SHOW"):
+        fig.show()
 
 
 def main():
