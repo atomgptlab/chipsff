@@ -1,4 +1,4 @@
-![alt text](https://github.com/usnistgov/chipsff/actions/workflows/main.yml/badge.svg)
+![alt text](https://github.com/atomgptlab/chipsff/actions/workflows/main.yml/badge.svg)
 
 # CHIPS-FF
 ![CHIPS-FF Schematic](chipsff/chipsffworkflow.png)
@@ -23,7 +23,7 @@ The `chipsff` repository provides a comprehensive framework for performing mater
 
 Clone the repository:
 ```bash
-git clone https://github.com/usnistgov/chipsff
+git clone https://github.com/atomgptlab/chipsff
 ```
 Set up a conda environment:
 ```bash
@@ -76,7 +76,7 @@ The following libraries and tools are required:
 - `orb`
 - `fairchem`
 
-**Note**: Some calculators may have additional dependencies or require specific versions of libraries. Please refer to their respective documentation for setup instructions. To install the `intermat` package, see [here](https://github.com/usnistgov/intermat).
+**Note**: Some calculators may have additional dependencies or require specific versions of libraries. Please refer to their respective documentation for setup instructions. To install the `intermat` package, see [here](https://github.com/atomgptlab/intermat).
 
 ## Input File Parameters
 
@@ -285,14 +285,14 @@ An example `interface_input.json` file:
 - `analyze_interfaces()`: Performs interface analysis between film and substrate materials using the `intermat` package.
 
 ## How to contribute
-For detailed instructions, please see [Contribution instructions](https://github.com/usnistgov/jarvis/blob/master/Contribution.rst)
+For detailed instructions, please see [Contribution instructions](https://github.com/atomgptlab/jarvis/blob/master/Contribution.rst)
 
 ## Correspondence
-Please report bugs as Github issues (https://github.com/usnistgov/chipsff/issues) or email to daniel.wines@nist.gov or kamal.choudhary@nist.gov.
+Please report bugs as Github issues (https://github.com/atomgptlab/chipsff/issues) or email to daniel.wines@nist.gov or kamal.choudhary@nist.gov.
 
 ## Funding support
 This work was performed with funding from the CHIPS Metrology Program, part of CHIPS for America, National Institute of Standards and Technology, U.S. Department of Commerce.
 
 
 ## Code of conduct
-Please see [Code of conduct](https://github.com/usnistgov/jarvis/blob/master/CODE_OF_CONDUCT.md)
+Please see [Code of conduct](https://github.com/atomgptlab/jarvis/blob/master/CODE_OF_CONDUCT.md)

@@ -12,7 +12,7 @@ setup(
     description="CHIPSFF: A force field analysis toolkit",
     long_description=long_description,
     long_description_content_type="text/markdown",
-    url="https://github.com/usnistgov/chipsff",
+    url="https://github.com/atomgptlab/chipsff",
     packages=find_packages(),
     install_requires=[
         "numpy>=1.22.0",
