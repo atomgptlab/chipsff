@@ -192,6 +192,13 @@ class MaterialsAnalyzer:
         for entry in self.dataset:
             if entry[self.id_tag] == jid:
                 return entry
+        # fall back to dft_2d (2D-material jids, e.g. for interfaces); cache it
+        if not hasattr(self, "_dft_2d"):
+            from jarvis.db.figshare import data as _jdata
+            self._dft_2d = _jdata("dft_2d")
+        for entry in self._dft_2d:
+            if entry.get(self.id_tag) == jid:
+                return entry
         raise ValueError(f"JID {jid} not found in the database")
 
     def setup_logger(self):
@@ -320,7 +327,22 @@ class MaterialsAnalyzer:
         """
         Calculate the formation energy per atom using the equilibrium energy and chemical potentials.
         """
-        e0 = self.job_info["equilibrium_energy"]
+        # `equilibrium_energy` comes from the E-V fit. When the E-V curve is
+        # not part of this run, fall back to the relaxed bulk energy so that
+        # "relax + formation energy" works as a standalone workflow.
+        e0 = self.job_info.get("equilibrium_energy")
+        if e0 is None:
+            e0 = self.job_info.get("final_energy_structure")
+            if e0 is None:
+                self.log(
+                    "No equilibrium_energy or final_energy_structure available; "
+                    "skipping formation energy."
+                )
+                return None
+            self.log(
+                f"No E-V fit available; using relaxed bulk energy {e0} eV "
+                f"for the formation energy."
+            )
         composition = relaxed_atoms.composition.to_dict()
         total_energy = e0
 
@@ -1731,8 +1753,8 @@ class MaterialsAnalyzer:
             "substrate_jid": self.substrate_jid,
             "film_index": self.film_index,
             "substrate_index": self.substrate_index,
-            "disp_intvl": 0.05,         # We'll do an XY scan at 0.05 intervals
-            "z_seps": [0.5, 4.5, 0.1],  # Z-scan from 0.5 to 4.5 in increments of 0.1
+            "disp_intvl": 5.0,          # single XY point (relaxation finds the local min)
+            "z_seps": [2.5, 3.0, 1.0],  # single Z start=2.5 A (relaxation converges to equilibrium gap)
             "calculator_method": self.calculator_type.lower(),
             "vacuum_interface": 2.0,
             "max_area": 300,
@@ -1775,6 +1797,7 @@ class MaterialsAnalyzer:
             max_area=config["max_area"],
             ltol=config["ltol"],
             dataset=[None],
+            relax=True,
         )
         extra_params = {}
         extra_params["alignn_params"] = {}
@@ -1833,6 +1856,7 @@ class MaterialsAnalyzer:
             max_area=config["max_area"],
             ltol=config["ltol"],
             dataset=[None],
+            relax=True,
         )
         wads_2d = x_xyscan.calculate_wad(
             method=config["calculator_method"],

@@ -1,5 +1,9 @@
 #!/usr/bin/env python
 
+# SlakoNet parameter sets are large (~200 MB) and slow to load, so keep one
+# instance per parameter-set name for the lifetime of the process.
+_SLAKONET_MODEL_CACHE = {}
+
 
 def setup_calculator(calculator_type, calculator_settings):
     """
@@ -161,6 +165,43 @@ def setup_calculator(calculator_type, calculator_settings):
             "/users/dtw2/fairchem-models/pretrained_models/eqV2_86M_omat_mp_salex.pt",
         )
         return OCPCalculator(checkpoint_path=checkpoint_path)
+
+    elif calculator_type in ("slakonet", "slakonet_v0", "slakonet_v1",
+                             "slakonet_v1a"):
+        # SlakoNet: universal DFTB (tight-binding) parameter sets.
+        # https://github.com/atomgptlab/slakonet
+        import torch
+        from slakonet.main import SlakoNetCalculator
+        from slakonet.optim import default_model, DEFAULT_MODEL_NAME
+
+        if calculator_type == "slakonet":
+            model_name = calculator_settings.get(
+                "model_name", DEFAULT_MODEL_NAME
+            )
+        else:
+            model_name = calculator_settings.get("model_name", calculator_type)
+
+        device = calculator_settings.get(
+            "device", "cuda" if torch.cuda.is_available() else "cpu"
+        )
+        # SlakoNet is a k-point method; the default 1x1x1 mesh is only
+        # adequate for large supercells. Slabs and defect cells generally
+        # want something like [3, 3, 1] / [2, 2, 2].
+        kpoints_array = calculator_settings.get("kpoints_array", [1, 1, 1])
+
+        model = _SLAKONET_MODEL_CACHE.get(model_name)
+        if model is None:
+            model = default_model(model_name=model_name)
+            model = model.to(device).float()
+            model.eval()
+            _SLAKONET_MODEL_CACHE[model_name] = model
+
+        return SlakoNetCalculator(
+            model=model,
+            kpoints_array=kpoints_array,
+            device=device,
+            compute_forces=calculator_settings.get("compute_forces", True),
+        )
 
     else:
         raise ValueError(f"Unsupported calculator type: {calculator_type}")
