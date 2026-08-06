@@ -184,10 +184,17 @@ def setup_calculator(calculator_type, calculator_settings):
         device = calculator_settings.get(
             "device", "cuda" if torch.cuda.is_available() else "cpu"
         )
-        # SlakoNet is a k-point method; the default 1x1x1 mesh is only
-        # adequate for large supercells. Slabs and defect cells generally
-        # want something like [3, 3, 1] / [2, 2, 2].
+        # SlakoNet is a k-point method. One calculator instance is reused
+        # across bulk cells, defect supercells and slabs, so prefer
+        # `kspacing` (1/Angstrom) and let the mesh follow each cell: a
+        # fixed mesh that suits a 64-atom supercell leaves spurious forces
+        # well above a typical fmax=0.05 criterion on a 2-atom cell.
+        kspacing = calculator_settings.get("kspacing", 0.30)
         kpoints_array = calculator_settings.get("kpoints_array", [1, 1, 1])
+        if calculator_settings.get("kpoints_array") is not None and (
+            "kspacing" not in calculator_settings
+        ):
+            kspacing = None  # explicit mesh requested, honour it
 
         model = _SLAKONET_MODEL_CACHE.get(model_name)
         if model is None:
@@ -199,6 +206,7 @@ def setup_calculator(calculator_type, calculator_settings):
         return SlakoNetCalculator(
             model=model,
             kpoints_array=kpoints_array,
+            kspacing=kspacing,
             device=device,
             compute_forces=calculator_settings.get("compute_forces", True),
         )
