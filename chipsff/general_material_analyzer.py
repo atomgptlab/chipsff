@@ -323,26 +323,38 @@ class MaterialsAnalyzer:
         # Return final structure for subsequent steps
         return relaxed_atoms
 
+    def get_bulk_reference_energy(self, purpose=""):
+        """Bulk reference energy for defect / surface / formation energies.
+
+        `equilibrium_energy` comes from the E-V fit, which is only run when
+        `calculate_ev_curve` is in properties_to_calculate. Fall back to the
+        relaxed bulk energy so those analyses work without it. Returns None
+        if neither is available, so callers can skip rather than silently
+        use 0.0.
+        """
+        e0 = self.job_info.get("equilibrium_energy")
+        if e0 is not None:
+            return e0
+        e0 = self.job_info.get("final_energy_structure")
+        if e0 is None:
+            self.log(
+                "No equilibrium_energy or final_energy_structure available; "
+                f"skipping {purpose or 'this analysis'}."
+            )
+            return None
+        self.log(
+            f"No E-V fit available; using relaxed bulk energy {e0} eV "
+            f"for {purpose or 'the reference energy'}."
+        )
+        return e0
+
     def calculate_formation_energy(self, relaxed_atoms):
         """
         Calculate the formation energy per atom using the equilibrium energy and chemical potentials.
         """
-        # `equilibrium_energy` comes from the E-V fit. When the E-V curve is
-        # not part of this run, fall back to the relaxed bulk energy so that
-        # "relax + formation energy" works as a standalone workflow.
-        e0 = self.job_info.get("equilibrium_energy")
+        e0 = self.get_bulk_reference_energy("the formation energy")
         if e0 is None:
-            e0 = self.job_info.get("final_energy_structure")
-            if e0 is None:
-                self.log(
-                    "No equilibrium_energy or final_energy_structure available; "
-                    "skipping formation energy."
-                )
-                return None
-            self.log(
-                f"No E-V fit available; using relaxed bulk energy {e0} eV "
-                f"for the formation energy."
-            )
+            return None
         composition = relaxed_atoms.composition.to_dict()
         total_energy = e0
 
@@ -883,10 +895,11 @@ class MaterialsAnalyzer:
                 continue
 
             vacancy_energy = self.job_info.get(f"final_energy_defect for {defect_name}", None)
+            e0 = self.get_bulk_reference_energy("the vacancy formation energy")
+            if e0 is None:
+                continue
             bulk_energy = (
-                self.job_info.get("equilibrium_energy", 0.0)
-                / self.atoms.num_atoms
-                * (defect_structure.num_atoms + 1)
+                e0 / self.atoms.num_atoms * (defect_structure.num_atoms + 1)
             )
             if vacancy_energy is None or bulk_energy == 0.0:
                 self.log(f"Skipping {defect_name} due to missing energy values.")
@@ -1115,7 +1128,7 @@ class MaterialsAnalyzer:
                 continue
 
             # Check bulk energy availability
-            bulk_energy = self.job_info.get("equilibrium_energy")
+            bulk_energy = self.get_bulk_reference_energy("the surface energy")
             if bulk_energy is None:
                 self.log(f"Skipping surface {indices} because no bulk energy is found.")
                 continue
