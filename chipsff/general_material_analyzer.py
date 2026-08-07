@@ -8,7 +8,6 @@ import matplotlib.pyplot as plt
 from ase.eos import EquationOfState
 from ase import Atoms as AseAtoms
 from ase.units import kJ
-
 try:
     from ase.filters import ExpCellFilter
 except ImportError:  # older ASE
@@ -44,7 +43,6 @@ from chipsff.utils import (
 # vacancydb = data("vacancydb")
 # surface_data = data("surfacedb")
 
-
 def get_atoms_from_file(path):
     """Utility to read a CIF or POSCAR/vasp file into a jarvis.core.atoms.Atoms object."""
 
@@ -62,7 +60,6 @@ def get_atoms_from_file(path):
         return poscar.atoms
     else:
         raise ValueError(f"Unsupported file extension for {path}.")
-
 
 class MaterialsAnalyzer:
     def __init__(
@@ -123,7 +120,7 @@ class MaterialsAnalyzer:
         self.calculator_settings = calculator_settings or {}
 
         if structure_path is not None:
-            # 1) Local file mode
+        # 1) Local file mode
             if not os.path.isfile(structure_path):
                 raise FileNotFoundError(f"File not found: {structure_path}")
             self.jid = None  # no JID in this mode
@@ -135,13 +132,8 @@ class MaterialsAnalyzer:
             self.reference_data = {}
             self.output_dir = f"{base_name}_{calculator_type}"
             os.makedirs(self.output_dir, exist_ok=True)
-            self.log_file = os.path.join(
-                self.output_dir, f"{base_name}_job_log.txt"
-            )
-            self.job_info = {
-                "structure_path": structure_path,
-                "calculator_type": calculator_type,
-            }
+            self.log_file = os.path.join(self.output_dir, f"{base_name}_job_log.txt")
+            self.job_info = {"structure_path": structure_path, "calculator_type": calculator_type}
             self.calculator = self.setup_calculator()
             self.chemical_potentials = self.load_chemical_potentials()
         elif jid:
@@ -203,7 +195,6 @@ class MaterialsAnalyzer:
         # fall back to dft_2d (2D-material jids, e.g. for interfaces); cache it
         if not hasattr(self, "_dft_2d"):
             from jarvis.db.figshare import data as _jdata
-
             self._dft_2d = _jdata("dft_2d")
         for entry in self._dft_2d:
             if entry.get(self.id_tag) == jid:
@@ -221,11 +212,9 @@ class MaterialsAnalyzer:
 
         self.logger = logging.getLogger(logger_name)
         self.logger.setLevel(logging.INFO)
-
+    
         fh = logging.FileHandler(self.log_file)
-        formatter = logging.Formatter(
-            "%(asctime)s - %(levelname)s - %(message)s"
-        )
+        formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
         fh.setFormatter(formatter)
         self.logger.addHandler(fh)
 
@@ -268,9 +257,7 @@ class MaterialsAnalyzer:
         last_line = output.split("\n")[-1] if output else ""
         # Regex to capture the energy in a line like:
         # "FIRE:   8  0:00:00 -146.123456"
-        match = re.search(
-            r"FIRE:\s+\d+\s+\d+:\d+:\d+\s+(-?\d+\.\d+)", last_line
-        )
+        match = re.search(r"FIRE:\s+\d+\s+\d+:\d+:\d+\s+(-?\d+\.\d+)", last_line)
 
         # If there's a match, parse it; otherwise default to 0.0
         final_energy = float(match.group(1)) if match else 0.0
@@ -291,12 +278,8 @@ class MaterialsAnalyzer:
         ase_atoms.calc = self.calculator
 
         # Grab settings
-        filter_type = self.bulk_relaxation_settings.get(
-            "filter_type", "ExpCellFilter"
-        )
-        relaxation_settings = self.bulk_relaxation_settings.get(
-            "relaxation_settings", {}
-        )
+        filter_type = self.bulk_relaxation_settings.get("filter_type", "ExpCellFilter")
+        relaxation_settings = self.bulk_relaxation_settings.get("relaxation_settings", {})
         constant_volume = relaxation_settings.get("constant_volume", False)
         fmax = relaxation_settings.get("fmax", 0.05)
         steps = relaxation_settings.get("steps", 200)
@@ -307,14 +290,10 @@ class MaterialsAnalyzer:
                 from ase.filters import ExpCellFilter
             except ImportError:
                 from ase.constraints import ExpCellFilter
-            ase_atoms = ExpCellFilter(
-                ase_atoms, constant_volume=constant_volume
-            )
+            ase_atoms = ExpCellFilter(ase_atoms, constant_volume=constant_volume)
 
         # Run the FIRE optimizer, parsing stdout for the final energy
-        final_energy, nsteps = self.capture_fire_output(
-            ase_atoms, fmax=fmax, steps=steps
-        )
+        final_energy, nsteps = self.capture_fire_output(ase_atoms, fmax=fmax, steps=steps)
 
         # Convert back to JARVIS atoms
         relaxed_atoms = ase_to_atoms(ase_atoms.atoms)
@@ -334,9 +313,7 @@ class MaterialsAnalyzer:
         self.job_info["converged"] = converged
 
         # Save final structure, even if unconverged
-        final_poscar_path = os.path.join(
-            self.output_dir, f"{self.jid}_bulk_relaxed.vasp"
-        )
+        final_poscar_path = os.path.join(self.output_dir, f"{self.jid}_bulk_relaxed.vasp")
         Poscar(relaxed_atoms).write_file(final_poscar_path)
         self.log(f"Bulk final structure saved to {final_poscar_path}")
 
@@ -496,8 +473,8 @@ class MaterialsAnalyzer:
 
         # Strain values
         dx = np.arange(-0.06, 0.06, 0.01)
-        y = []  # Energies
-        vol = []  # Volumes
+        y = []   # Energies
+        vol = [] # Volumes
         strained_structures = []
 
         for i in dx:
@@ -536,9 +513,7 @@ class MaterialsAnalyzer:
             # Plotting
             fig = plt.figure()
             eos.plot()
-            ev_plot_filename = os.path.join(
-                self.output_dir, "E_vs_V_curve.png"
-            )
+            ev_plot_filename = os.path.join(self.output_dir, "E_vs_V_curve.png")
             fig.savefig(ev_plot_filename)
             plt.close(fig)
             self.log(f"E-V curve plot saved to {ev_plot_filename}")
@@ -646,7 +621,6 @@ class MaterialsAnalyzer:
         try:
             # --- Begin Phonon Steps ---
             from jarvis.core.kpoints import Kpoints3D as Kpoints
-
             kpoints = Kpoints().kpath(relaxed_atoms, line_density=5)
 
             self.log("Converting atoms to Phonopy-compatible format...")
@@ -662,9 +636,7 @@ class MaterialsAnalyzer:
             # Displacement generation
             phonon.generate_displacements(distance=distance)
             supercells = phonon.supercells_with_displacements
-            self.log(
-                f"Generated {len(supercells)} supercells for displacements."
-            )
+            self.log(f"Generated {len(supercells)} supercells for displacements.")
 
             # Calculate forces for each displaced supercell
             set_of_forces = []
@@ -694,21 +666,14 @@ class MaterialsAnalyzer:
                 force_constants_filepath = os.path.join(
                     self.output_dir, force_constants_filename
                 )
-                self.log(
-                    f"Writing force constants to {force_constants_filepath}..."
-                )
-                write_FORCE_CONSTANTS(
-                    phonon.force_constants, filename=force_constants_filepath
-                )
-                self.log(
-                    f"Force constants saved to {force_constants_filepath}"
-                )
+                self.log(f"Writing force constants to {force_constants_filepath}...")
+                write_FORCE_CONSTANTS(phonon.force_constants, filename=force_constants_filepath)
+                self.log(f"Force constants saved to {force_constants_filepath}")
 
             # Prepare band structure
             bands = [kpoints.kpts]  # Assuming a single path
             labels = []
             from ruamel.yaml import YAML
-
             path_connections = []
             for i, label in enumerate(kpoints.labels):
                 labels.append(label if label else "")
@@ -719,10 +684,7 @@ class MaterialsAnalyzer:
             # Run band structure
             self.log("Running band structure calculation...")
             phonon.run_band_structure(
-                bands,
-                with_eigenvectors=False,
-                labels=labels,
-                path_connections=path_connections,
+                bands, with_eigenvectors=False, labels=labels, path_connections=path_connections
             )
 
             # Save band.yaml
@@ -763,12 +725,8 @@ class MaterialsAnalyzer:
 
             for ii, k in enumerate(kpoints.kpts):
                 k_str = ",".join(map(str, k))
-                if ii == 0 or k_str != ",".join(
-                    map(str, kpoints.kpts[ii - 1])
-                ):
-                    freqs_at_k = phonon.get_frequencies(
-                        k
-                    )  # Frequencies in THz
+                if ii == 0 or k_str != ",".join(map(str, kpoints.kpts[ii - 1])):
+                    freqs_at_k = phonon.get_frequencies(k)  # Frequencies in THz
                     freqs_at_k_cm = freqs_at_k * THz_to_cm  # Convert to cm^-1
                     freqs.append(freqs_at_k_cm)
                     eigenvalues.append((k, freqs_at_k_cm))
@@ -779,12 +737,8 @@ class MaterialsAnalyzer:
                     count += 1
 
             # Write eigenvalues to file
-            eigenvalues_filepath = os.path.join(
-                self.output_dir, eigenvalues_filename
-            )
-            self.log(
-                f"Writing phonon eigenvalues to {eigenvalues_filepath}..."
-            )
+            eigenvalues_filepath = os.path.join(self.output_dir, eigenvalues_filename)
+            self.log(f"Writing phonon eigenvalues to {eigenvalues_filepath}...")
             with open(eigenvalues_filepath, "w") as eig_file:
                 eig_file.write("k-points\tFrequencies (cm^-1)\n")
                 for k, freqs_at_k_cm in eigenvalues:
@@ -810,9 +764,7 @@ class MaterialsAnalyzer:
             plt.ylabel("Frequency (cm$^{-1}$)")
             plt.xlim([0, max(lbls_x)])
 
-            phonon.run_mesh(
-                [40, 40, 40], is_gamma_center=True, is_mesh_symmetry=False
-            )
+            phonon.run_mesh([40, 40, 40], is_gamma_center=True, is_mesh_symmetry=False)
             phonon.run_total_dos()
             tdos = phonon.total_dos
             freqs_dos = np.array(tdos.frequency_points) * THz_to_cm
@@ -837,14 +789,10 @@ class MaterialsAnalyzer:
             plt.xlim([0, max(dos_values)])
             os.makedirs(self.output_dir, exist_ok=True)
 
-            plot_filepath = os.path.join(
-                self.output_dir, phonopy_bands_figname
-            )
+            plot_filepath = os.path.join(self.output_dir, phonopy_bands_figname)
             plt.tight_layout()
             plt.savefig(plot_filepath)
-            self.log(
-                f"Phonon band structure and DOS combined plot saved to {plot_filepath}"
-            )
+            self.log(f"Phonon band structure and DOS combined plot saved to {plot_filepath}")
             plt.close()
 
             self.log("Calculating thermal properties...")
@@ -881,15 +829,11 @@ class MaterialsAnalyzer:
                 self.output_dir, f"Thermal_Properties_{self.jid}.png"
             )
             plt.savefig(thermal_props_plot_filepath)
-            self.log(
-                f"Thermal properties plot saved to {thermal_props_plot_filepath}"
-            )
+            self.log(f"Thermal properties plot saved to {thermal_props_plot_filepath}")
             plt.close()
 
             # Save thermal properties to file
-            thermal_props_filepath = os.path.join(
-                self.output_dir, thermal_props_filename
-            )
+            thermal_props_filepath = os.path.join(self.output_dir, thermal_props_filename)
             with open(thermal_props_filepath, "w") as f:
                 f.write(
                     "Temperature (K)\tFree Energy (kJ/mol)\tEntropy (J/K*mol)\tHeat Capacity (J/K*mol)\n"
@@ -926,9 +870,7 @@ class MaterialsAnalyzer:
         self.log("Starting defect analysis...")
 
         generate_settings = self.defect_settings.get("generate_settings", {})
-        on_conventional_cell = generate_settings.get(
-            "on_conventional_cell", True
-        )
+        on_conventional_cell = generate_settings.get("on_conventional_cell", True)
         enforce_c_size = generate_settings.get("enforce_c_size", 8)
         extend = generate_settings.get("extend", 1)
 
@@ -946,19 +888,13 @@ class MaterialsAnalyzer:
             defect_name = f"{self.jid}_{element}"
             self.log(f"Analyzing defect: {defect_name}")
 
-            defect_structure = Atoms.from_dict(
-                defect.to_dict()["defect_structure"]
-            )
-            relaxed_defect_atoms = self.relax_defect_structure(
-                defect_structure, name=defect_name
-            )
+            defect_structure = Atoms.from_dict(defect.to_dict()["defect_structure"])
+            relaxed_defect_atoms = self.relax_defect_structure(defect_structure, name=defect_name)
             if relaxed_defect_atoms is None:
                 self.log(f"Skipping {defect_name} due to failed relaxation.")
                 continue
 
-            vacancy_energy = self.job_info.get(
-                f"final_energy_defect for {defect_name}", None
-            )
+            vacancy_energy = self.job_info.get(f"final_energy_defect for {defect_name}", None)
             e0 = self.get_bulk_reference_energy("the vacancy formation energy")
             if e0 is None:
                 continue
@@ -966,34 +902,24 @@ class MaterialsAnalyzer:
                 e0 / self.atoms.num_atoms * (defect_structure.num_atoms + 1)
             )
             if vacancy_energy is None or bulk_energy == 0.0:
-                self.log(
-                    f"Skipping {defect_name} due to missing energy values."
-                )
+                self.log(f"Skipping {defect_name} due to missing energy values.")
                 continue
 
             chem_pot = self.get_chemical_potential(element)
             if chem_pot is None:
-                self.log(
-                    f"Skipping {defect_name} due to missing chemical potential for {element}."
-                )
+                self.log(f"Skipping {defect_name} due to missing chemical potential for {element}.")
                 continue
 
             vac_form_en = vacancy_energy - bulk_energy + chem_pot
-            self.log(
-                f"Vacancy formation energy for {defect_name}: {vac_form_en} eV"
-            )
-            self.job_info[f"vacancy_formation_energy for {defect_name}"] = (
-                vac_form_en
-            )
+            self.log(f"Vacancy formation energy for {defect_name}: {vac_form_en} eV")
+            self.job_info[f"vacancy_formation_energy for {defect_name}"] = vac_form_en
 
             # Default `vac_en_entry=0.0`; will be updated if we find a reference.
-            all_vac_data.append(
-                {
-                    "name": defect_name,
-                    "vac_en": vac_form_en,
-                    "vac_en_entry": 0.0,
-                }
-            )
+            all_vac_data.append({
+                "name": defect_name,
+                "vac_en": vac_form_en,
+                "vac_en_entry": 0.0
+            })
 
         self.job_info["all_vacancies"] = all_vac_data
         save_dict_to_json(self.job_info, self.get_job_info_filename())
@@ -1005,9 +931,7 @@ class MaterialsAnalyzer:
 
         # Convert atoms to ASE format and assign the calculator
         filter_type = self.defect_settings.get("filter_type", "ExpCellFilter")
-        relaxation_settings = self.defect_settings.get(
-            "relaxation_settings", {}
-        )
+        relaxation_settings = self.defect_settings.get("relaxation_settings", {})
         constant_volume = relaxation_settings.get("constant_volume", True)
         fmax = relaxation_settings.get("fmax", 0.05)
         steps = relaxation_settings.get("steps", 200)
@@ -1016,17 +940,13 @@ class MaterialsAnalyzer:
         ase_atoms.calc = self.calculator
 
         if filter_type == "ExpCellFilter":
-            ase_atoms = ExpCellFilter(
-                ase_atoms, constant_volume=constant_volume
-            )
+            ase_atoms = ExpCellFilter(ase_atoms, constant_volume=constant_volume)
         else:
             # Implement other filters if needed
             pass
 
         # Run FIRE optimizer and parse the last line for final energy
-        final_energy, nsteps = self.capture_fire_output(
-            ase_atoms, fmax=fmax, steps=steps
-        )
+        final_energy, nsteps = self.capture_fire_output(ase_atoms, fmax=fmax, steps=steps)
         relaxed_atoms = ase_to_atoms(ase_atoms.atoms)
 
         # Check if it converged (i.e., nsteps < max allowed)
@@ -1080,16 +1000,12 @@ class MaterialsAnalyzer:
         # 2) Filter for entries matching our current JID
         matched_defects = [d for d in vacancydb if d["jid"] == self.jid]
         if not matched_defects:
-            self.log(
-                f"No defect data found in vacancydb for JID={self.jid}. Skipping."
-            )
+            self.log(f"No defect data found in vacancydb for JID={self.jid}. Skipping.")
             return
 
-        self.log(
-            f"Found {len(matched_defects)} defects in vacancydb for {self.jid}."
-        )
+        self.log(f"Found {len(matched_defects)} defects in vacancydb for {self.jid}.")
         all_vac_data = []
-
+        
         # 3) Loop over each defect entry from the DB
         for defect_entry in matched_defects:
             # 'atoms' should be the full defect supercell
@@ -1100,30 +1016,20 @@ class MaterialsAnalyzer:
             ref_formation_energy = defect_entry.get("ef", None)
 
             if ref_formation_energy is None:
-                self.log(
-                    f"Defect entry has no 'ef' (formation energy) for {symbol_removed}. Skipping."
-                )
+                self.log(f"Defect entry has no 'ef' (formation energy) for {symbol_removed}. Skipping.")
                 continue
 
             # 4) Relax the defect structure using our usual method
             defect_name = f"{self.jid}_{symbol_removed}_db"
-            relaxed_defect_atoms = self.relax_defect_structure(
-                defect_atoms_db, name=defect_name
-            )
+            relaxed_defect_atoms = self.relax_defect_structure(defect_atoms_db, name=defect_name)
             if relaxed_defect_atoms is None:
-                self.log(
-                    f"Failed to relax defect for {defect_name}. Skipping."
-                )
+                self.log(f"Failed to relax defect for {defect_name}. Skipping.")
                 continue
 
             # 5) Extract the final defect energy from job_info
-            final_defect_energy = self.job_info.get(
-                f"final_energy_defect for {defect_name}", None
-            )
+            final_defect_energy = self.job_info.get(f"final_energy_defect for {defect_name}", None)
             if final_defect_energy is None:
-                self.log(
-                    f"No final defect energy found in job_info for {defect_name}."
-                )
+                self.log(f"No final defect energy found in job_info for {defect_name}.")
                 continue
 
             # 6) Compute the vacancy formation energy with your chosen approach
@@ -1132,9 +1038,7 @@ class MaterialsAnalyzer:
 
             eq_energy = self.job_info.get("equilibrium_energy", None)
             if eq_energy is None:
-                self.log(
-                    "No equilibrium_energy found in job_info. Cannot compute formation energy."
-                )
+                self.log("No equilibrium_energy found in job_info. Cannot compute formation energy.")
                 continue
 
             N_bulk = self.atoms.num_atoms  # how many atoms in your bulk cell
@@ -1145,14 +1049,10 @@ class MaterialsAnalyzer:
             # Chemical potential for removed element
             mu_removed = self.get_chemical_potential(symbol_removed)
             if mu_removed is None:
-                self.log(
-                    f"Chemical potential for {symbol_removed} is missing. Skipping formation energy calc."
-                )
+                self.log(f"Chemical potential for {symbol_removed} is missing. Skipping formation energy calc.")
                 continue
 
-            calc_formation_energy = (
-                final_defect_energy - E_bulk_equiv + mu_removed
-            )
+            calc_formation_energy = final_defect_energy - E_bulk_equiv + mu_removed
 
             # 7) Compare to the reference from the DB
             self.log(
@@ -1161,32 +1061,29 @@ class MaterialsAnalyzer:
             )
 
             # Store results
-            all_vac_data.append(
-                {
-                    "defect_name": defect_name,
-                    "calc_vac_form_en": calc_formation_energy,
-                    "ref_vac_form_en": ref_formation_energy,
-                }
-            )
+            all_vac_data.append({
+                "defect_name": defect_name,
+                "calc_vac_form_en": calc_formation_energy,
+                "ref_vac_form_en": ref_formation_energy
+            })
 
         # 8) Optionally compute a mean absolute error across all matched defects
         if all_vac_data:
             calc_vals = [x["calc_vac_form_en"] for x in all_vac_data]
             ref_vals = [x["ref_vac_form_en"] for x in all_vac_data]
             err_vac = mean_absolute_error(ref_vals, calc_vals)
-            self.log(
-                f"MAE in vacancy formation energies vs. DB reference = {err_vac:.3f} eV"
-            )
+            self.log(f"MAE in vacancy formation energies vs. DB reference = {err_vac:.3f} eV")
 
             # 9) Store results in job_info
             self.job_info["db_vacancies"] = all_vac_data
             self.job_info["db_vacancies_mae"] = err_vac
 
             from chipsff.utils import save_dict_to_json
-
             save_dict_to_json(self.job_info, self.get_job_info_filename())
         else:
             self.log("No valid vacancy entries were processed from the DB.")
+
+
 
     def analyze_surfaces(self):
         """
@@ -1209,68 +1106,48 @@ class MaterialsAnalyzer:
         layers = self.surface_settings.get("layers", 4)
         vacuum = self.surface_settings.get("vacuum", 18)
 
-        all_surfaces = (
-            []
-        )  # We'll store only the non-polar, successfully relaxed surfaces.
+        all_surfaces = []  # We'll store only the non-polar, successfully relaxed surfaces.
 
         for indices in indices_list:
             # Generate surface and skip if polar
             surface = (
-                Surface(
-                    self.atoms, indices=indices, layers=layers, vacuum=vacuum
-                )
+                Surface(self.atoms, indices=indices, layers=layers, vacuum=vacuum)
                 .make_surface()
                 .center_around_origin()
             )
             if surface.check_polar:
-                self.log(
-                    f"Skipping polar surface for {self.jid} with indices {indices}"
-                )
+                self.log(f"Skipping polar surface for {self.jid} with indices {indices}")
                 continue
 
             # Relax the surface structure
-            relaxed_surface_atoms, final_energy = self.relax_surface_structure(
-                surface, indices
-            )
+            relaxed_surface_atoms, final_energy = self.relax_surface_structure(surface, indices)
 
             # If relaxation fails, skip
             if relaxed_surface_atoms is None or final_energy is None:
-                self.log(
-                    f"Skipping surface {indices} due to failed relaxation."
-                )
+                self.log(f"Skipping surface {indices} due to failed relaxation.")
                 continue
 
             # Check bulk energy availability
             bulk_energy = self.get_bulk_reference_energy("the surface energy")
             if bulk_energy is None:
-                self.log(
-                    f"Skipping surface {indices} because no bulk energy is found."
-                )
+                self.log(f"Skipping surface {indices} because no bulk energy is found.")
                 continue
 
             # Calculate surface energy
             s_energy = self.calculate_surface_energy(
                 final_energy, bulk_energy, relaxed_surface_atoms, surface
             )
-            surface_name = (
-                f"Surface-{self.jid}_miller_{'_'.join(map(str, indices))}"
-            )
-            self.job_info[surface_name] = (
-                s_energy  # Store in job_info for reference
-            )
+            surface_name = f"Surface-{self.jid}_miller_{'_'.join(map(str, indices))}"
+            self.job_info[surface_name] = s_energy  # Store in job_info for reference
 
-            self.log(
-                f"Surface energy for {self.jid} with indices {indices}: {s_energy} J/m^2"
-            )
+            self.log(f"Surface energy for {self.jid} with indices {indices}: {s_energy} J/m^2")
 
             # Append to all_surfaces
-            all_surfaces.append(
-                {
-                    "indices": indices,
-                    "surface_name": surface_name,
-                    "surf_en": s_energy,
-                }
-            )
+            all_surfaces.append({
+                "indices": indices,
+                "surface_name": surface_name,
+                "surf_en": s_energy,
+            })
 
         # Store only the surfaces that made it through relaxation
         self.job_info["all_surfaces"] = all_surfaces
@@ -1278,10 +1155,7 @@ class MaterialsAnalyzer:
         # Save updated job info
         save_dict_to_json(
             self.job_info,
-            os.path.join(
-                self.output_dir,
-                f"{self.jid}_{self.calculator_type}_job_info.json",
-            ),
+            os.path.join(self.output_dir, f"{self.jid}_{self.calculator_type}_job_info.json"),
         )
         self.log("Surface analysis completed.")
 
@@ -1290,14 +1164,10 @@ class MaterialsAnalyzer:
         Relax a surface structure, log the final energy, and save the final
         structure even if unconverged.
         """
-        self.log(
-            f"Starting surface relaxation for {self.jid} with Miller indices {indices}"
-        )
+        self.log(f"Starting surface relaxation for {self.jid} with Miller indices {indices}")
 
         filter_type = self.surface_settings.get("filter_type", "ExpCellFilter")
-        relaxation_settings = self.surface_settings.get(
-            "relaxation_settings", {}
-        )
+        relaxation_settings = self.surface_settings.get("relaxation_settings", {})
         constant_volume = relaxation_settings.get("constant_volume", True)
         fmax = relaxation_settings.get("fmax", 0.05)
         steps = relaxation_settings.get("steps", 200)
@@ -1311,13 +1181,9 @@ class MaterialsAnalyzer:
                 from ase.filters import ExpCellFilter
             except ImportError:
                 from ase.constraints import ExpCellFilter
-            ase_atoms = ExpCellFilter(
-                ase_atoms, constant_volume=constant_volume
-            )
+            ase_atoms = ExpCellFilter(ase_atoms, constant_volume=constant_volume)
 
-        final_energy, nsteps = self.capture_fire_output(
-            ase_atoms, fmax=fmax, steps=steps
-        )
+        final_energy, nsteps = self.capture_fire_output(ase_atoms, fmax=fmax, steps=steps)
         relaxed_surf_atoms = ase_to_atoms(ase_atoms.atoms)
 
         converged = nsteps < steps
@@ -1882,7 +1748,6 @@ class MaterialsAnalyzer:
         from intermat.generate import InterfaceCombi
         from jarvis.io.vasp.inputs import Poscar
         from jarvis.db.figshare import get_jid_data
-
         # 1) Basic checks
         if not self.film_jid or not self.substrate_jid:
             self.log(
@@ -1901,12 +1766,8 @@ class MaterialsAnalyzer:
             "substrate_jid": self.substrate_jid,
             "film_index": self.film_index,
             "substrate_index": self.substrate_index,
-            "disp_intvl": 5.0,  # single XY point (relaxation finds the local min)
-            "z_seps": [
-                2.5,
-                3.0,
-                1.0,
-            ],  # single Z start=2.5 A (relaxation converges to equilibrium gap)
+            "disp_intvl": 5.0,          # single XY point (relaxation finds the local min)
+            "z_seps": [2.5, 3.0, 1.0],  # single Z start=2.5 A (relaxation converges to equilibrium gap)
             "calculator_method": self.calculator_type.lower(),
             "vacuum_interface": 2.0,
             "max_area": 300,
@@ -1928,9 +1789,9 @@ class MaterialsAnalyzer:
         # 4) Step (A): Perform Z-scan with disp_intvl=0.0
         z_range = np.arange(*config["z_seps"])  # e.g. np.arange(0.5, 4.5, 0.1)
         self.log("Running Z-scan (vertical separation) for interface...")
-
+       
         def str_to_list(index_str):
-            indices = [int(x) for x in index_str.split("_")]
+            indices = [int(x) for x in index_str.split('_')]
             print(f"Converted {index_str} to {indices}")  # Debug print
             return indices
 
@@ -1942,7 +1803,7 @@ class MaterialsAnalyzer:
             vacuum_interface=config["vacuum_interface"],
             film_mats=[film_atoms],
             subs_mats=[subs_atoms],
-            disp_intvl=0.0,  # no XY shift
+            disp_intvl=0.0,          # no XY shift
             seperations=z_range,
             from_conventional_structure_film=True,
             from_conventional_structure_subs=True,
@@ -1956,7 +1817,8 @@ class MaterialsAnalyzer:
         extra_params["alignn_params"]["model_path"] = ""
 
         wads_zscan = x_zscan.calculate_wad(
-            method=config["calculator_method"], extra_params=extra_params
+            method=config["calculator_method"],
+            extra_params=extra_params
         )
         wads_zscan = np.array(wads_zscan)
 
@@ -1984,9 +1846,7 @@ class MaterialsAnalyzer:
         idx_min = np.argmin(wads_zscan)
         best_z = z_range[idx_min]
         best_z_wad = wads_zscan[idx_min]
-        self.log(
-            f"Best z separation found: {best_z:.2f} Å with Wad={best_z_wad:.3f} J/m²"
-        )
+        self.log(f"Best z separation found: {best_z:.2f} Å with Wad={best_z_wad:.3f} J/m²")
 
         # Update job_info with z-scan summary
         self.job_info["z_scan_summary"] = {
@@ -2012,7 +1872,8 @@ class MaterialsAnalyzer:
             relax=True,
         )
         wads_2d = x_xyscan.calculate_wad(
-            method=config["calculator_method"], extra_params=extra_params
+            method=config["calculator_method"],
+            extra_params=extra_params
         )
         wads_2d = np.array(wads_2d)
 
@@ -2063,10 +1924,8 @@ class MaterialsAnalyzer:
                 f"{self.jid}_{self.calculator_type}_job_info.json",
             )
 
-        elif (
-            getattr(self, "film_jid", None) is not None
-            and getattr(self, "substrate_jid", None) is not None
-        ):
+
+        elif getattr(self, "film_jid", None) is not None and getattr(self, "substrate_jid", None) is not None:
             return os.path.join(
                 self.output_dir,
                 f"Interface_{self.film_jid}_{self.film_index}_"
@@ -2075,12 +1934,10 @@ class MaterialsAnalyzer:
 
         # 3) If we have a local-file scenario
         elif getattr(self, "structure_path", None) is not None:
-            base_name = os.path.splitext(
-                os.path.basename(self.structure_path)
-            )[0]
+            base_name = os.path.splitext(os.path.basename(self.structure_path))[0]
             return os.path.join(
                 self.output_dir,
-                f"{base_name}_{self.calculator_type}_job_info.json",
+                f"{base_name}_{self.calculator_type}_job_info.json"
             )
 
         else:
@@ -2138,9 +1995,7 @@ class MaterialsAnalyzer:
         # Calculate E-V curve and bulk modulus if requested
         # -----------------------------------------------
         if "calculate_ev_curve" in self.properties_to_calculate:
-            _, _, _, _, bulk_modulus, _, _ = self.calculate_ev_curve(
-                relaxed_atoms
-            )
+            _, _, _, _, bulk_modulus, _, _ = self.calculate_ev_curve(relaxed_atoms)
             kv_entry = self.reference_data.get("bulk_modulus_kv", 0)
             final_results["modulus"] = {
                 "kv": bulk_modulus,
@@ -2157,9 +2012,7 @@ class MaterialsAnalyzer:
         # -----------------------------------------------
         if "calculate_formation_energy" in self.properties_to_calculate:
             formation_energy = self.calculate_formation_energy(relaxed_atoms)
-            form_en_entry = self.reference_data.get(
-                "formation_energy_peratom", 0
-            )
+            form_en_entry = self.reference_data.get("formation_energy_peratom", 0)
             final_results["form_en"] = {
                 "form_energy": formation_energy,
                 "form_energy_entry": form_en_entry,
@@ -2201,134 +2054,112 @@ class MaterialsAnalyzer:
         # Vacancy energy analysis
         # -----------------------------------------------
         if "analyze_defects" in self.properties_to_calculate:
-            from chipsff.utils import collect_data, get_vacancy_energy_entry
-            import numpy as np
-            from sklearn.metrics import mean_absolute_error
+                from chipsff.utils import collect_data, get_vacancy_energy_entry
+                import numpy as np
+                from sklearn.metrics import mean_absolute_error
 
-            # 1) Actually run the single-pass defect analysis
-            self.analyze_defects()
+                # 1) Actually run the single-pass defect analysis
+                self.analyze_defects()
 
-            # 2) Retrieve the defect data from job_info
-            all_vac_data = self.job_info.get("all_vacancies", [])
+                # 2) Retrieve the defect data from job_info
+                all_vac_data = self.job_info.get("all_vacancies", [])
 
-            # 3) Get reference data; ensure it's a list of dict
-            vacancy_entries = get_vacancy_energy_entry(
-                self.jid, collect_data()
-            )
-            if isinstance(vacancy_entries, dict):
-                # Wrap single dict in a list
-                vacancy_entries = [vacancy_entries]
-            if not isinstance(vacancy_entries, list):
-                self.log("No valid or unexpected vacancy reference data type.")
-                vacancy_entries = []
+                # 3) Get reference data; ensure it's a list of dict
+                vacancy_entries = get_vacancy_energy_entry(self.jid, collect_data())
+                if isinstance(vacancy_entries, dict):
+                        # Wrap single dict in a list
+                        vacancy_entries = [vacancy_entries]
+                if not isinstance(vacancy_entries, list):
+                        self.log("No valid or unexpected vacancy reference data type.")
+                        vacancy_entries = []
 
-            # 4) Attempt to match each vacancy in all_vac_data to the reference
-            matched_vac = []
-            for vac_info in all_vac_data:
-                defect_name = vac_info["name"]  # e.g. "JVASP-107_Si"
-                calc_vac_en = vac_info["vac_en"]
+                # 4) Attempt to match each vacancy in all_vac_data to the reference
+                matched_vac = []
+                for vac_info in all_vac_data:
+                        defect_name = vac_info["name"]   # e.g. "JVASP-107_Si"
+                        calc_vac_en = vac_info["vac_en"]
 
-                # Find an entry dict with "symbol" == defect_name
-                matching_entry = next(
-                    (
-                        entry
-                        for entry in vacancy_entries
-                        if isinstance(entry, dict)
-                        and entry.get("symbol") == defect_name
-                    ),
-                    None,
-                )
+                        # Find an entry dict with "symbol" == defect_name
+                        matching_entry = next(
+                                (
+                                    entry for entry in vacancy_entries
+                                    if isinstance(entry, dict) and entry.get("symbol") == defect_name
+                                ),
+                                None
+                        )
 
-                if (
-                    matching_entry
-                    and matching_entry.get("vac_en_entry", 0) != 0
-                ):
-                    matched_vac.append(
-                        {
-                            "name": defect_name,
-                            "vac_en": calc_vac_en,
-                            "vac_en_entry": matching_entry["vac_en_entry"],
-                        }
-                    )
+                        if matching_entry and matching_entry.get("vac_en_entry", 0) != 0:
+                                matched_vac.append({
+                                    "name": defect_name,
+                                    "vac_en": calc_vac_en,
+                                    "vac_en_entry": matching_entry["vac_en_entry"]
+                                })
+                        else:
+                                self.log(f"No valid matching entry found for {defect_name}")
+
+                # 5) Store only matched defects in final_results
+                final_results["vacancy_energy"] = matched_vac
+
+                # 6) Optionally compute an error metric if at least one match was found
+                if matched_vac:
+                        vac_en = [v["vac_en"] for v in matched_vac]
+                        vac_ref = [v["vac_en_entry"] for v in matched_vac]
+                        err_vac_en = mean_absolute_error(vac_ref, vac_en)
                 else:
-                    self.log(
-                        f"No valid matching entry found for {defect_name}"
-                    )
-
-            # 5) Store only matched defects in final_results
-            final_results["vacancy_energy"] = matched_vac
-
-            # 6) Optionally compute an error metric if at least one match was found
-            if matched_vac:
-                vac_en = [v["vac_en"] for v in matched_vac]
-                vac_ref = [v["vac_en_entry"] for v in matched_vac]
-                err_vac_en = mean_absolute_error(vac_ref, vac_en)
-            else:
-                err_vac_en = np.nan
+                        err_vac_en = np.nan
         if "analyze_defects_from_db" in self.properties_to_calculate:
             self.analyze_defects_from_db()
         # -----------------------------------------------
         # Surface energy analysis
         # -----------------------------------------------
         if "analyze_surfaces" in self.properties_to_calculate:
-            from chipsff.utils import collect_data, get_surface_energy_entry
-            import numpy as np
-            from sklearn.metrics import mean_absolute_error
+                from chipsff.utils import collect_data, get_surface_energy_entry
+                import numpy as np
+                from sklearn.metrics import mean_absolute_error
 
-            self.analyze_surfaces()
+                self.analyze_surfaces()
 
-            # Retrieve the surfaces that were actually relaxed
-            all_surfs = self.job_info.get("all_surfaces", [])
-            surface_entries = get_surface_energy_entry(
-                self.jid, collect_data()
-            )
+                # Retrieve the surfaces that were actually relaxed
+                all_surfs = self.job_info.get("all_surfaces", [])
+                surface_entries = get_surface_energy_entry(self.jid, collect_data())
 
-            # Ensure surface_entries is a list of dictionaries
-            if isinstance(surface_entries, dict):
-                surface_entries = [surface_entries]
-            if not isinstance(surface_entries, list):
-                self.log(
-                    "surface_entries is not a list; skipping surface matching."
-                )
-                surface_entries = []
+                # Ensure surface_entries is a list of dictionaries
+                if isinstance(surface_entries, dict):
+                        surface_entries = [surface_entries]
+                if not isinstance(surface_entries, list):
+                        self.log("surface_entries is not a list; skipping surface matching.")
+                        surface_entries = []
 
-            matched_surfs = []
-            for surf_info in all_surfs:
-                sname = surf_info["surface_name"]
-                calc_en = surf_info["surf_en"]
+                matched_surfs = []
+                for surf_info in all_surfs:
+                        sname = surf_info["surface_name"]
+                        calc_en = surf_info["surf_en"]
 
-                # Attempt to find a dict with matching "name"
-                matching_entry = next(
-                    (
-                        entry
-                        for entry in surface_entries
-                        if isinstance(entry, dict)
-                        and entry.get("name") == sname
-                    ),
-                    None,
-                )
-                if (
-                    matching_entry
-                    and matching_entry.get("surf_en_entry", 0) != 0
-                ):
-                    matched_surfs.append(
-                        {
-                            "name": sname,
-                            "surf_en": calc_en,
-                            "surf_en_entry": matching_entry["surf_en_entry"],
-                        }
-                    )
+                        # Attempt to find a dict with matching "name"
+                        matching_entry = next(
+                                (
+                                    entry for entry in surface_entries
+                                    if isinstance(entry, dict) and entry.get("name") == sname
+                                ),
+                                None
+                        )
+                        if matching_entry and matching_entry.get("surf_en_entry", 0) != 0:
+                                matched_surfs.append({
+                                    "name": sname,
+                                    "surf_en": calc_en,
+                                    "surf_en_entry": matching_entry["surf_en_entry"],
+                                })
+                        else:
+                                self.log(f"No valid matching entry found for {sname}")
+
+                final_results["surface_energy"] = matched_surfs
+
+                if matched_surfs:
+                        se_calc = [m["surf_en"] for m in matched_surfs]
+                        se_ref = [m["surf_en_entry"] for m in matched_surfs]
+                        err_surf_en = mean_absolute_error(se_ref, se_calc)
                 else:
-                    self.log(f"No valid matching entry found for {sname}")
-
-            final_results["surface_energy"] = matched_surfs
-
-            if matched_surfs:
-                se_calc = [m["surf_en"] for m in matched_surfs]
-                se_ref = [m["surf_en_entry"] for m in matched_surfs]
-                err_surf_en = mean_absolute_error(se_ref, se_calc)
-            else:
-                err_surf_en = np.nan
+                        err_surf_en = np.nan
 
         # -----------------------------------------------
         # Additional analyses (interfaces, phonon3, etc.)
@@ -2372,9 +2203,7 @@ class MaterialsAnalyzer:
         err_a = mean_absolute_error([lattice_initial.a], [lattice_final.a])
         err_b = mean_absolute_error([lattice_initial.b], [lattice_final.b])
         err_c = mean_absolute_error([lattice_initial.c], [lattice_final.c])
-        err_vol = mean_absolute_error(
-            [lattice_initial.volume], [lattice_final.volume]
-        )
+        err_vol = mean_absolute_error([lattice_initial.volume], [lattice_final.volume])
 
         # Collect all errors
         error_dat = {
@@ -2404,7 +2233,8 @@ class MaterialsAnalyzer:
 
         # Final results JSON
         output_file = os.path.join(
-            self.output_dir, f"{self.jid}_{self.calculator_type}_results.json"
+            self.output_dir,
+            f"{self.jid}_{self.calculator_type}_results.json"
         )
         save_dict_to_json(final_results, output_file)
 
