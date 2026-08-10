@@ -291,6 +291,9 @@ class MaterialsAnalyzer:
             except ImportError:
                 from ase.constraints import ExpCellFilter
             ase_atoms = ExpCellFilter(ase_atoms, constant_volume=constant_volume)
+        elif filter_type == "FrechetCellFilter":
+            from ase.filters import FrechetCellFilter
+            ase_atoms = FrechetCellFilter(ase_atoms, constant_volume=constant_volume)
 
         # Run the FIRE optimizer, parsing stdout for the final energy
         final_energy, nsteps = self.capture_fire_output(ase_atoms, fmax=fmax, steps=steps)
@@ -624,7 +627,14 @@ class MaterialsAnalyzer:
             kpoints = Kpoints().kpath(relaxed_atoms, line_density=5)
 
             self.log("Converting atoms to Phonopy-compatible format...")
-            bulk = relaxed_atoms.phonopy_converter()
+            # phonopy 4.x PhonopyAtoms dropped the pbc kwarg that jarvis'
+            # phonopy_converter() passes; build it directly to stay compatible.
+            from phonopy.structure.atoms import PhonopyAtoms as _PA
+            bulk = _PA(
+                symbols=relaxed_atoms.elements,
+                positions=relaxed_atoms.cart_coords,
+                cell=relaxed_atoms.lattice_mat,
+            )
             from phonopy import Phonopy
 
             phonon = Phonopy(
@@ -941,9 +951,9 @@ class MaterialsAnalyzer:
 
         if filter_type == "ExpCellFilter":
             ase_atoms = ExpCellFilter(ase_atoms, constant_volume=constant_volume)
-        else:
-            # Implement other filters if needed
-            pass
+        elif filter_type == "FrechetCellFilter":
+            from ase.filters import FrechetCellFilter
+            ase_atoms = FrechetCellFilter(ase_atoms, constant_volume=constant_volume)
 
         # Run FIRE optimizer and parse the last line for final energy
         final_energy, nsteps = self.capture_fire_output(ase_atoms, fmax=fmax, steps=steps)
@@ -1182,6 +1192,9 @@ class MaterialsAnalyzer:
             except ImportError:
                 from ase.constraints import ExpCellFilter
             ase_atoms = ExpCellFilter(ase_atoms, constant_volume=constant_volume)
+        elif filter_type == "FrechetCellFilter":
+            from ase.filters import FrechetCellFilter
+            ase_atoms = FrechetCellFilter(ase_atoms, constant_volume=constant_volume)
 
         final_energy, nsteps = self.capture_fire_output(ase_atoms, fmax=fmax, steps=steps)
         relaxed_surf_atoms = ase_to_atoms(ase_atoms.atoms)
