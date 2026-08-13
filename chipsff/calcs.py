@@ -18,15 +18,12 @@ def setup_calculator(calculator_type, calculator_settings):
     """
     if calculator_type == "matgl":
         import matgl
-        from matgl.ext.ase import M3GNetCalculator
+        from matgl.ext.ase import PESCalculator
 
-        model_name = calculator_settings.get("model", "M3GNet-MP-2021.2.8-PES")
+        model_name = calculator_settings.get(
+            "model", "M3GNet-PES-MatPES-PBE-2025.2")
         pot = matgl.load_model(model_name)
-        compute_stress = calculator_settings.get("compute_stress", True)
-        stress_weight = calculator_settings.get("stress_weight", 0.01)
-        return M3GNetCalculator(
-            pot, compute_stress=compute_stress, stress_weight=stress_weight
-        )
+        return PESCalculator(pot, stress_unit="eV/A3", stress_weight=1.0)
 
     elif calculator_type == "matgl-direct":
         import matgl
@@ -58,6 +55,14 @@ def setup_calculator(calculator_type, calculator_settings):
             if key in calculator_settings:
                 ff_kwargs[key] = calculator_settings[key]
         return AlignnAtomwiseCalculator(**ff_kwargs)
+    elif calculator_type == "fairchem":
+        # FairChem universal models (e.g. Meta UMA). Requires fairchem-core v2.
+        from fairchem.core import pretrained_mlip, FAIRChemCalculator
+        model_name = calculator_settings.get("model_name", "uma-s-1p1")
+        device = calculator_settings.get("device", "cuda")
+        task_name = calculator_settings.get("task_name", "omat")
+        pu = pretrained_mlip.get_predict_unit(model_name, device=device)
+        return FAIRChemCalculator(pu, task_name=task_name)
 
     elif calculator_type == "mattersim":
         from mattersim.forcefield import MatterSimCalculator
@@ -120,6 +125,16 @@ def setup_calculator(calculator_type, calculator_settings):
         orbff = pretrained.orb_d3_v2()
         device = calculator_settings.get("device", "cpu")
         return ORBCalculator(orbff, device=device)
+
+    elif calculator_type == "uma":
+        # fairchem v2 universal model (UMA). Needs fairchem-core>=2 + HF access.
+        from fairchem.core import pretrained_mlip, FAIRChemCalculator
+
+        name = calculator_settings.get("model_name", "uma-s-1p1")
+        task = calculator_settings.get("task_name", "omat")
+        device = calculator_settings.get("device", "cpu")
+        pu = pretrained_mlip.get_predict_unit(name, device=device)
+        return FAIRChemCalculator(pu, task_name=task)
 
     elif calculator_type == "eqV2_31M_omat":
         from fairchem.core import OCPCalculator
