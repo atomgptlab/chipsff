@@ -296,6 +296,46 @@ def main():
     ap.add_argument(
         "--phonons", action="store_true", help="also compute phonons (slow)"
     )
+    # optional WBM / Matbench-Discovery task (relax on a cluster array, score)
+    ap.add_argument(
+        "--wbm-relax",
+        dest="wbm_relax",
+        action="store_true",
+        help="relax a shard of WBM (uses SHARD/NSHARD env or "
+        "--shard/--nshard)",
+    )
+    ap.add_argument(
+        "--wbm-score",
+        dest="wbm_score",
+        action="store_true",
+        help="score relaxed WBM: e_form MAE, stability F1, RMSD",
+    )
+    ap.add_argument(
+        "--diatomics",
+        action="store_true",
+        help="reference-free diatomic-curve metrics (tortuosity)",
+    )
+    ap.add_argument(
+        "--scaling",
+        action="store_true",
+        help="inference timing + peak memory on cubic Si supercells "
+        "(t @ 21,952 atoms, max atoms, OOM)",
+    )
+    ap.add_argument("--shard", type=int, default=0)
+    ap.add_argument("--nshard", type=int, default=0)
+    ap.add_argument(
+        "--wbm_zip",
+        default="",
+        help="wbm-initial-atoms.extxyz.zip (else matbench_discovery)",
+    )
+    ap.add_argument(
+        "--out", default="", help="WBM output dir (default wbm_<tag>)"
+    )
+    ap.add_argument(
+        "--leaderboard",
+        default="",
+        help="jarvis_leaderboard dir; write contribution CSVs",
+    )
     args = ap.parse_args()
 
     model = next(k for k in REGISTRY if getattr(args, k))
@@ -316,13 +356,55 @@ def main():
         flush=True,
     )
     ensure_package(imp, pip_name)
-    # chipsff analysis backends (elastic tensor / phonons / interfaces)
+    CSET = settings(args)
+
+    # ---- optional WBM / Matbench-Discovery task ----
+    if args.wbm_relax or args.wbm_score or args.diatomics or args.scaling:
+        from chipsff.calcs import setup_calculator
+
+        calc = setup_calculator(calc_type, CSET[calc_type])
+        if args.scaling:
+            from chipsff import scaling as scaling_mod
+
+            scaling_mod.scaling(
+                calc, out_dir=f"scaling_{tag}", device=args.device
+            )
+        if args.wbm_relax or args.wbm_score or args.diatomics:
+            from chipsff import wbm
+
+            ensure_package("matbench_discovery", "matbench-discovery")
+            wout = os.path.abspath(args.out or f"wbm_{tag}")
+        if args.diatomics:
+            print(
+                "diatomic metrics:",
+                wbm.diatomics(calc, out_dir=f"diatomics_{tag}"),
+                flush=True,
+            )
+        if args.wbm_relax:
+            shard = args.shard or int(
+                os.environ.get("SLURM_ARRAY_TASK_ID", "1")
+            )
+            nshard = args.nshard or int(os.environ.get("NSHARD", "490"))
+            wbm.relax(calc, shard, nshard, wout, wbm_zip=args.wbm_zip)
+        if args.wbm_score:
+            metrics = wbm.score(wout, calc=calc)
+            print("WBM metrics:", metrics, flush=True)
+            if args.leaderboard:
+                wbm.write_leaderboard(
+                    wout,
+                    tag,
+                    args.leaderboard,
+                    author_email="",
+                    project_url="https://github.com/atomgptlab/alignn",
+                )
+        return
+
+    # chipsff analysis backends for the property benchmark
     ensure_package("elastic", "elastic")
     if args.phonons:
         ensure_package("phonopy", "phonopy")
     if not args.skip_interfaces:
         ensure_package("intermat", "intermat")
-    CSET = settings(args)
 
     chempot = self_consistent_chempots(calc_type, out_dir)
     jids = json.load(open(os.path.join(HERE, "lb_jids.json")))

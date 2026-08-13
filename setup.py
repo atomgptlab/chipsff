@@ -35,8 +35,9 @@ setup(
         "console_scripts": [
             "run_chipsff=chipsff.run_chipsff:main",  # Allows `run_chipsff` to be called from the CLI
             "run_chipsff_all=chipsff.run_main:main",  # full benchmark for one model
+            "chipsff_compile=chipsff.compile_tables:main",  # merge models -> Table 4/5
         ],
     },
-    package_data={"chipsff": ["*.json", "*.csv"]},
+    package_data={"chipsff": ["*.json", "*.csv", "*.sh"]},
     include_package_data=True,
 )

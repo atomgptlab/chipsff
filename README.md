@@ -213,6 +213,66 @@ under `chipsff_frechet_<tag>/`. (Interface `W_ad` uses chipsff's InterMat
 `calculate_wad` with a `|Wad| <= 7` physical filter; `--phonons` is needed for the
 phonon-band MAE.)
 
+### Optional benchmark tasks (same `run_main.py`, same model flags)
+
+```bash
+# Matbench-Discovery diatomic-curve metrics (tortuosity / smoothness of the PES)
+python -m chipsff.run_main --alignn_ff --diatomics
+
+# Single-point inference scaling: timing + peak memory on cubic Si supercells
+# (reports t @ 21,952 atoms, max atoms, and the OOM point)
+python -m chipsff.run_main --alignn_ff --scaling
+
+# WBM / Matbench-Discovery discovery benchmark (relax -> score):
+#   relaxation is shardable for a SLURM array (SHARD/NSHARD)
+SHARD=1 NSHARD=490 python -m chipsff.run_main --alignn_ff --wbm-relax \
+    --wbm_zip /path/to/wbm-initial-atoms.extxyz.zip
+#   then score: formation-energy MAE, stability F1, structure RMSD
+python -m chipsff.run_main --alignn_ff --wbm-score \
+    --leaderboard /path/to/jarvis_leaderboard/jarvis_leaderboard
+```
+
+`--wbm-score` (and the leaderboard export) need `matbench_discovery`
+(auto-installed). When `--leaderboard <dir>` is given it writes a
+jarvis-leaderboard-compatible contribution (`AI-SinglePropertyPrediction-e_form-
+wbm-test-mae.csv.zip` + `metadata.json`) so results drop straight into the
+leaderboard.
+
+### Compiling the combined tables (Table 4 / Table 5)
+
+`run_main.py` writes one artifact set per model. After running several models in
+the same directory, merge them into the multi-row paper tables:
+
+```bash
+python -m chipsff.run_main --alignn_ff --tag alignn_ff
+python -m chipsff.run_main --matgl     --tag matgl
+python -m chipsff.run_main --alignn_ff --scaling --tag alignn_ff   # (etc.)
+python -m chipsff.compile_tables            # scans the cwd
+```
+
+It scans for `chipsff_table_<tag>.csv` (properties), `scaling_<tag>/scaling.json`
+(timing/memory), `diatomics_<tag>/diatomics.json` (tortuosity) and
+`wbm_<tag>/wbm_score.json`, and writes **`chipsff_table4_properties.{csv,md,tex}`**
+and **`chipsff_table5_scaling.{csv,md,tex}`** (the `.tex` drops straight into the
+paper).
+
+### Running on a cluster (SLURM template)
+
+`chipsff/submit_slurm.sh` is a general template driven by env vars
+(`MODEL`, `TASK`, `NSHARD`, `DEVICE`, `EXTRA`, `LB`). Edit the one
+env-activation line, then:
+
+```bash
+MODEL=alignn_ff sbatch chipsff/submit_slurm.sh                      # property table
+MODEL=alignn_ff TASK=diatomics sbatch chipsff/submit_slurm.sh       # tortuosity
+MODEL=alignn_ff TASK=scaling DEVICE=cuda sbatch chipsff/submit_slurm.sh
+MODEL=alignn_ff TASK=wbm NSHARD=490 \
+    EXTRA="--wbm_zip /path/wbm-initial-atoms.extxyz.zip" \
+    sbatch --array=1-490%100 chipsff/submit_slurm.sh                # WBM relax (array)
+MODEL=alignn_ff TASK=wbm-score LB=/path/jarvis_leaderboard/jarvis_leaderboard \
+    sbatch chipsff/submit_slurm.sh                                  # WBM score + leaderboard
+```
+
 ### Per-material analysis (`run_chipsff.py`)
 The `run_chipsff.py` script provides a command-line interface to perform individual materials analyses.
 
