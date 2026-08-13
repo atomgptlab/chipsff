@@ -34,7 +34,9 @@ setup(
     entry_points={
         "console_scripts": [
             "run_chipsff=chipsff.run_chipsff:main",  # Allows `run_chipsff` to be called from the CLI
+            "run_chipsff_all=chipsff.run_main:main",  # full benchmark for one model
         ],
     },
+    package_data={"chipsff": ["*.json", "*.csv"]},
     include_package_data=True,
 )

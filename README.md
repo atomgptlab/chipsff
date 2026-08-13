@@ -171,7 +171,50 @@ The input configuration file is a JSON file that specifies all required settings
   - **`min_size`** *(float)*: Minimum cell size in Ångströms (e.g., `10.0`).
 
 ## Usage
-The main script `run_chipsff.py` provides a command-line interface to perform various materials analyses.
+
+### Quickstart: full benchmark for one model (`run_main.py`)
+`run_main.py` runs the **entire** CHIPS-FF property benchmark for a single model
+with one command and prints/saves the MAE-vs-JARVIS-DFT table (lattice `a,c`;
+formation energy; elastic `C11,C44`; bulk modulus `Kv`; monovacancy; surface;
+interface work of adhesion). Pick the model with a flag:
+
+```bash
+python -m chipsff.run_main --alignn_ff        # default MATPES-r2SCAN (auto-downloads)
+python -m chipsff.run_main --alignn_ff --model_path /path/to/model_dir   # your checkpoint (best_model.pt + config.json)
+python -m chipsff.run_main --uma              # Meta UMA (FairChem)
+python -m chipsff.run_main --matgl            # M3GNet-MatPES-PBE
+python -m chipsff.run_main --chgnet
+python -m chipsff.run_main --mace
+```
+
+It is self-contained and robust:
+- **Auto-installs** the selected model's Python package if it is not importable
+  (and chipsff's analysis backends `elastic` / `phonopy` / `intermat` as needed).
+- **Self-consistent chemical potentials**: the stored `energy_<calc>` entries are
+  dropped so every elemental reference is recomputed with the *selected* model on
+  the fly (chipsff caches them back) — no stale-chempot correction required. If a
+  chemical potential is missing, chipsff generates it automatically from the
+  bundled element→reference-JID map (`chemical_potentials.json`).
+- Uses the leaderboard protocol (`FrechetCellFilter`, 6 surface millers,
+  defect `enforce_c_size=8`) over the bundled 104-material set (`lb_jids.json`)
+  and interface set (`Interface.csv`).
+
+Options:
+
+```bash
+python -m chipsff.run_main --alignn_ff --n 5          # limit to first 5 materials (quick test; 0 = all 104)
+python -m chipsff.run_main --alignn_ff --skip-interfaces   # skip work-of-adhesion
+python -m chipsff.run_main --alignn_ff --phonons      # also compute phonons
+python -m chipsff.run_main --alignn_ff --device cpu   # force CPU
+```
+
+Output: a printed table plus `chipsff_table_<tag>.csv`, with per-material results
+under `chipsff_frechet_<tag>/`. (Interface `W_ad` uses chipsff's InterMat
+`calculate_wad` with a `|Wad| <= 7` physical filter; `--phonons` is needed for the
+phonon-band MAE.)
+
+### Per-material analysis (`run_chipsff.py`)
+The `run_chipsff.py` script provides a command-line interface to perform individual materials analyses.
 
 **1. Single Material Analysis**
 To run an analysis on a single material by providing an input.json file:
