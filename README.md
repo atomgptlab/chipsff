@@ -4,7 +4,7 @@
 ![CHIPS-FF Schematic](chipsff/chipsffworkflow.png)
 ## Overview
 
-The `chipsff` repository provides a comprehensive framework for performing materials simulations with machine learning force fields (MLFFs). Simulations include structural relaxation, vacancy and surface energy calculations, interface analysis, elastic properties, phonons and thermal properties. The code supports multiple universal MLFFs and integrates with the JARVIS database and the Atomic Simulation Environment (ASE) to facilitate various materials simulations and workflows.
+The `chipsff` repository provides a comprehensive framework for performing materials simulations with machine learning force fields (MLFFs). Simulations include structural relaxation, vacancy and surface energy calculations, interface analysis, elastic properties, phonons and thermal properties. The code supports multiple universal MLFFs and integrates with the JARVIS database and the Atomic Simulation Environment (ASE) to facilitate various materials simulations and workflows. For a one-command benchmark, `python -m chipsff.run_main --<model>` runs the full property suite (plus optional WBM discovery, diatomic, and scaling tasks) for a chosen force field — see [Usage](#usage).
 
 ## Features
 
@@ -18,6 +18,11 @@ The `chipsff` repository provides a comprehensive framework for performing mater
 - **Molecular Dynamics (MD) Simulations**: Conduct MD simulations to melt and quench structures, and calculate Radial Distribution Functions (RDFs).  
 - **Support for Multiple Calculators**: Seamlessly switch between different MLFF calculators such as `alignn_ff`, `chgnet`, `sevenn`, `mace`, `matgl`, custom, etc.
 - **Automatic Error Calculation**: Direct comparison to density functional theory (DFT) calculations from JARVIS-DFT.
+- **One-Command Benchmark CLI**: `run_main.py` runs the full property benchmark (and optional tasks) for a chosen model with a single flag, auto-installing the model package and computing self-consistent chemical potentials.
+- **Discovery Benchmark (WBM / Matbench-Discovery)**: cluster-shardable relaxation and scoring (formation-energy MAE, stability F1, structure RMSD), with jarvis-leaderboard-compatible output.
+- **Diatomic-Curve Metrics**: reference-free potential-energy-surface smoothness (tortuosity, energy jumps, force flips, etc.).
+- **Inference Scaling**: single-point timing and peak-memory scaling on cubic supercells (t @ 21,952 atoms, max atoms, OOM point).
+- **Table Compiler**: merge per-model outputs into combined Table 4 (properties) and Table 5 (scaling) as CSV/Markdown/LaTeX.
 
 ## Installation
 
@@ -63,9 +68,16 @@ The following libraries and tools are required:
 - `phono3py`
 - `jarvis-tools`
 - `intermat`
+- `elastic`
 - `h5py`
 - `plotly`
 - `ruamel`
+- `matbench_discovery` *(only for the WBM discovery and diatomic tasks)*
+
+> The `run_main.py` driver auto-installs the selected model's package and the
+> analysis backends it needs (`elastic`, `phonopy`, `intermat`,
+> `matbench_discovery`) on first use, so a minimal environment is enough to start.
+
 ## Universal MLFFs Implemented
 
 - `alignn_ff`
@@ -74,7 +86,7 @@ The following libraries and tools are required:
 - `mace`
 - `matgl`
 - `orb`
-- `fairchem`
+- `fairchem` / `uma` (Meta UMA)
 
 **Note**: Some calculators may have additional dependencies or require specific versions of libraries. Please refer to their respective documentation for setup instructions. To install the `intermat` package, see [here](https://github.com/atomgptlab/intermat).
 
