@@ -296,6 +296,15 @@ def main():
     ap.add_argument(
         "--phonons", action="store_true", help="also compute phonons (slow)"
     )
+    ap.add_argument(
+        "--ref-only",
+        dest="ref_only",
+        action="store_true",
+        help="only compute vacancies/surfaces for materials that have a "
+        "DFT reference in vacancydb/surfacedb (benchmark-fast: skips the "
+        "~3/4 of defect/surface relaxations that never enter the MAE; "
+        "the n=49/82 table is identical)",
+    )
     # optional WBM / Matbench-Discovery task (relax on a cluster array, score)
     ap.add_argument(
         "--wbm-relax",
@@ -429,6 +438,22 @@ def main():
 
     props, relax, surf, dfc = protocol(args.phonons)
 
+    # benchmark-fast: restrict vacancy/surface to reference-having materials.
+    vac_ref = surf_ref = None
+    if args.ref_only:
+        from jarvis.db.figshare import data as _jdata
+
+        vac_ref = {e["jid"] for e in _jdata("vacancydb")}
+        surf_ref = {
+            e["name"].split("Surface-")[1].split("_miller_")[0]
+            for e in _jdata("surfacedb")
+        }
+        print(
+            f"ref-only: vacancy for {len(vac_ref)} jids, "
+            f"surface for {len(surf_ref)} jids (others skip those steps)",
+            flush=True,
+        )
+
     # 1) per-material suite
     for i, jid in enumerate(jids, 1):
         wd = os.path.join(out_dir, jid)
@@ -437,15 +462,25 @@ def main():
         ):
             print(f"[{i}/{len(jids)}] {jid} cached", flush=True)
             continue
-        print(f"[{i}/{len(jids)}] {jid}", flush=True)
+        mprops = list(props)
+        if args.ref_only:
+            if jid not in vac_ref and "analyze_defects" in mprops:
+                mprops.remove("analyze_defects")
+            if jid not in surf_ref and "analyze_surfaces" in mprops:
+                mprops.remove("analyze_surfaces")
+        print(
+            f"[{i}/{len(jids)}] {jid}"
+            + ("" if not args.ref_only else f"  props={len(mprops)}"),
+            flush=True,
+        )
         run_in(
             wd,
-            lambda j=jid: MaterialsAnalyzer(
+            lambda j=jid, mp=mprops: MaterialsAnalyzer(
                 jid=j,
                 calculator_type=calc_type,
                 calculator_settings=CSET,
                 chemical_potentials_file=chempot,
-                properties_to_calculate=props,
+                properties_to_calculate=mp,
                 use_conventional_cell=True,
                 bulk_relaxation_settings=relax,
                 surface_settings=surf,

@@ -217,6 +217,7 @@ Options:
 python -m chipsff.run_main --alignn_ff --n 5          # limit to first 5 materials (quick test; 0 = all 104)
 python -m chipsff.run_main --alignn_ff --skip-interfaces   # skip work-of-adhesion
 python -m chipsff.run_main --alignn_ff --phonons      # also compute phonons
+python -m chipsff.run_main --alignn_ff --ref-only     # benchmark-fast: run vacancy/surface only for materials with a DFT reference in vacancydb/surfacedb (33/48 of the 104); skips ~3/4 of defect/surface relaxations, ~2-3x faster, identical n=49/82 MAE
 python -m chipsff.run_main --alignn_ff --device cpu   # force CPU
 ```
 
