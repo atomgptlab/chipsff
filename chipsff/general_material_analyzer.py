@@ -219,10 +219,18 @@ class MaterialsAnalyzer:
         self.logger.addHandler(fh)
 
     def setup_calculator(self):
-        calc_settings = self.calculator_settings
+        calc_settings = self.calculator_settings or {}
+        # Accept either the inner per-calculator settings ({"path": ...}) or
+        # the full {calc_type: {...}} map that run_main builds. Without this
+        # unwrap, setup_calculator() sees no "path"/"model_name" key and
+        # silently falls back to the packaged default model -- so a custom
+        # --model_path (or a non-default model_name) is ignored.
+        if isinstance(calc_settings.get(self.calculator_type), dict):
+            calc_settings = calc_settings[self.calculator_type]
         calc = setup_calculator(self.calculator_type, calc_settings)
         self.log(
-            f"Using calculator: {self.calculator_type} with settings: {calc_settings}"
+            f"Using calculator: {self.calculator_type} with settings: "
+            f"{calc_settings}"
         )
         return calc
 
