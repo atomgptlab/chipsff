@@ -1,414 +1,168 @@
-![alt text](https://github.com/atomgptlab/chipsff/actions/workflows/main.yml/badge.svg)
+![CI](https://github.com/atomgptlab/chipsff/actions/workflows/main.yml/badge.svg)
 
 # CHIPS-FF
+
 ![CHIPS-FF Schematic](chipsff/chipsffworkflow.png)
-## Overview
 
-The `chipsff` repository provides a comprehensive framework for performing materials simulations with machine learning force fields (MLFFs). Simulations include structural relaxation, vacancy and surface energy calculations, interface analysis, elastic properties, phonons and thermal properties. The code supports multiple universal MLFFs and integrates with the JARVIS database and the Atomic Simulation Environment (ASE) to facilitate various materials simulations and workflows. For a one-command benchmark, `python -m chipsff.run_main --<model>` runs the full property suite (plus optional WBM discovery, diatomic, and scaling tasks) for a chosen force field — see [Usage](#usage).
+Benchmark machine-learning force fields (MLFFs) against JARVIS-DFT with **one
+command**. CHIPS-FF relaxes structures and computes lattice constants, formation
+& elastic properties, bulk modulus, surfaces, vacancies, phonons, interfaces
+(work of adhesion), amorphous/MD, and thermal conductivity — then reports the
+MAE vs DFT. It works across many potentials (`alignn_ff`, `chgnet`, `mace`,
+`matgl`/M3GNet, `uma`, `sevenn`, `orb`, …) via ASE + JARVIS-Tools.
 
-## Features
+## Install
 
-- **Structural Relaxation**: Optimize atomic structures using various MLFF calculators and optimization algorithms.
-- **Energy-Volume (E-V) Curve**: Fit the E-V curve using an equation of state (EOS) to obtain bulk modulus and equilibrium energy and volume.
-- **Elastic Properties**: Calculate elastic tensors.
-- **Vacancy and Surface Energy Calculations**: Compute vacancy formation energies and surface energies for different types of vacancies and surface terminations.
-- **Phonon Analysis**: Generate phonon band structures, density of states (DOS), and thermal properties using Phonopy.
-- **Thermal Conductivity**: Calculate thermal conductivity using third order force constants from Phono3py. 
-- **Thermal Expansion**: Perform thermal expansion calculations using the Quasi-Harmonic Approximation (QHA).
-- **Molecular Dynamics (MD) Simulations**: Conduct MD simulations to melt and quench structures, and calculate Radial Distribution Functions (RDFs).  
-- **Support for Multiple Calculators**: Seamlessly switch between different MLFF calculators such as `alignn_ff`, `chgnet`, `sevenn`, `mace`, `matgl`, custom, etc.
-- **Automatic Error Calculation**: Direct comparison to density functional theory (DFT) calculations from JARVIS-DFT.
-- **One-Command Benchmark CLI**: `run_main.py` runs the full property benchmark (and optional tasks) for a chosen model with a single flag, auto-installing the model package and computing self-consistent chemical potentials.
-- **Discovery Benchmark (WBM / Matbench-Discovery)**: cluster-shardable relaxation and scoring (formation-energy MAE, stability F1, structure RMSD), with jarvis-leaderboard-compatible output.
-- **Diatomic-Curve Metrics**: reference-free potential-energy-surface smoothness (tortuosity, energy jumps, force flips, etc.).
-- **Inference Scaling**: single-point timing and peak-memory scaling on cubic supercells (t @ 21,952 atoms, max atoms, OOM point).
-- **Table Compiler**: merge per-model outputs into combined Table 4 (properties) and Table 5 (scaling) as CSV/Markdown/LaTeX.
-
-## Installation
-
-Clone the repository:
 ```bash
-git clone https://github.com/atomgptlab/chipsff
-```
-Set up a conda environment:
-```bash
-conda env create -f environment.yml -n chipsff
-conda activate chipsff
-```
-Install the CHIPS-FF package:
-```bash
-cd chipsff
+git clone https://github.com/atomgptlab/chipsff && cd chipsff
+conda env create -f environment.yml -n chipsff && conda activate chipsff
 pip install -e .
 ```
+`run_main.py` auto-installs the chosen model's package and any analysis backend
+(`elastic`, `phonopy`, `phono3py`, `intermat`, `matbench_discovery`) on first use,
+so a minimal env is enough to start.
 
-## Examples
-
-| Notebooks                                                                                                                                      | Google&nbsp;Colab                                                                                                                                        | Descriptions                                                                                                                                                                                                                                                                                                                                                                                              |
-| ---------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [Structure optimization](https://colab.research.google.com/github/knc6/jarvis-tools-notebooks/blob/master/jarvis-tools-notebooks/chipsff_optimization.ipynb)                                                       | [![Open in Google Colab]](https://colab.research.google.com/github/knc6/jarvis-tools-notebooks/blob/master/jarvis-tools-notebooks/chipsff_optimization.ipynb)                                 | Examples for comparing errors in lattice parameter predictions, bulk modulus, elastic constants, etc.                                                                                                                                                                                                                                                                       |
-| [Scaling/timing comparison](https://colab.research.google.com/github/knc6/jarvis-tools-notebooks/blob/master/jarvis-tools-notebooks/chipsff_scaling.ipynb)                                                  | [![Open in Google Colab]](https://colab.research.google.com/github/knc6/jarvis-tools-notebooks/blob/master/jarvis-tools-notebooks/chipsff_scaling.ipynb)                            | Examples of analyzing scaling and timing comparisons.                                                                                                                                                                                                                                                                                                                                 |
-
-
-                                                                                                                                                    
-
-[Open in Google Colab]: https://colab.research.google.com/assets/colab-badge.svg
-
-
-## Requirements
-
-The following libraries and tools are required:
-
-- `python >= 3.9`
-- `numpy`
-- `matplotlib`
-- `pandas`
-- `scikit-learn`
-- `ase`
-- `phonopy`
-- `phono3py`
-- `jarvis-tools`
-- `intermat`
-- `elastic`
-- `h5py`
-- `plotly`
-- `ruamel`
-- `matbench_discovery` *(only for the WBM discovery and diatomic tasks)*
-
-> The `run_main.py` driver auto-installs the selected model's package and the
-> analysis backends it needs (`elastic`, `phonopy`, `intermat`,
-> `matbench_discovery`) on first use, so a minimal environment is enough to start.
-
-## Universal MLFFs Implemented
-
-- `alignn_ff`
-- `chgnet`
-- `sevenn`
-- `mace`
-- `matgl`
-- `orb`
-- `fairchem` / `uma` (Meta UMA)
-
-**Note**: Some calculators may have additional dependencies or require specific versions of libraries. Please refer to their respective documentation for setup instructions. To install the `intermat` package, see [here](https://github.com/atomgptlab/intermat).
-
-## Input File Parameters
-
-The input configuration file is a JSON file that specifies all required settings for performing materials simulations. Below is a detailed explanation of each parameter and its expected values.
-
-### Primary Parameters
-
-- **`jid`** *(string)*: The JARVIS ID of the material to analyze (e.g., `"JVASP-1002"`). This identifier is used to fetch structural data from the JARVIS database.
-
-- **`jid_list`** *(list of strings)*: A list of multiple JARVIS IDs for batch analysis (e.g., `["JVASP-1002", "JVASP-816", "JVASP-867"]`). Only used if analyzing multiple materials.
-
-- **`film_id`** and **`substrate_id`** *(list of strings)*: Lists of JARVIS IDs for film and substrate materials, respectively, in an interface analysis (e.g., `["JVASP-1002"]` and `["JVASP-816"]`).
-- **`calculator_type`** *(string)*: Specifies the MLFF calculator to use for analysis. Each calculator corresponds to a different machine learning force field or calculation model.
-
-- **`calculator_types`** *(list of strings)*: A list of calculators to use for batch processing (e.g., `["alignn_ff", "chgnet"]`). Only required if analyzing multiple calculators for batch processing.
-
-- **`chemical_potentials_file`** *(string)*: Path to the JSON file containing chemical potentials for elements (e.g., `"chemical_potentials.json"`). Required for formation energy and defect calculations. If an entry is missing for a particular element or MLFF calculator, it will be automatically calculated and stored in the chemical_potentials.json file.
-
-### Structural and Interface Settings
-
-- **`film_index`** and **`substrate_index`** *(string)*: Miller indices for the film and substrate in interface analysis, respectively. Example: `"1_1_0"` for both film and substrate.
-
-- **`use_conventional_cell`** *(boolean)*: Determines whether to use a conventional cell for the simulation. Set to `true` to use the conventional cell structure, or `false` for the primitive cell.
-
-### Properties to Calculate
-
-- **`properties_to_calculate`** *(list of strings)*: Specifies which properties to calculate during the workflow. Each string represents a calculation or analysis task. Options include:
-  - `"relax_structure"`: Perform initial structural relaxation.
-  - `"calculate_formation_energy"`: Calculate formation energy per atom.
-  - `"calculate_ev_curve"`: Fit the energy-volume (E-V) curve.
-  - `"calculate_elastic_tensor"`: Compute the elastic tensor.
-  - `"run_phonon_analysis"`: Run phonon band structure and thermal property calculations.
-  - `"analyze_defects"`: Calculate vacancy formation energies.
-  - `"analyze_surfaces"`: Calculate surface energies.
-  - `"analyze_interfaces"`: Perform interface analysis.
-  - `"run_phonon3_analysis"`: Run calculations for thermal conductivity.
-  - `"calculate_thermal_expansion"`: Calculate the thermal expansion coefficient.
-  - `"general_melter"`: Perform MD melting and quenching simulations.
-  - `"calculate_rdf"`: Calculate the Radial Distribution Function (RDF) for a quenched structure.
-
-### Relaxation and Analysis Settings
-
-#### Bulk Relaxation Settings
-
-- **`bulk_relaxation_settings`** *(dictionary)*: Configures the relaxation process for bulk structures. Contains:
-  - **`filter_type`** *(string)*: Specifies the filter type in ASE. Options include `"ExpCellFilter"` (exponential cell filter) and other filters.
-  - **`relaxation_settings`** *(dictionary)*: Contains relaxation parameters:
-    - **`constant_volume`** *(boolean)*: If `true`, keeps the volume constant during relaxation.
-    - **`fmax`** *(float)*: Convergence criterion for force (e.g., `0.05`).
-    - **`steps`** *(int)*: Maximum number of optimization steps (e.g., `200`).
-
-#### Phonon Settings
-
-- **`phonon_settings`** *(dictionary)*: Configures phonon calculation parameters. Contains:
-  - **`dim`** *(list of integers)*: Specifies the supercell dimensions for phonon calculations (e.g., `[2, 2, 2]`).
-  - **`distance`** *(float)*: Specifies the displacement distance for finite-displacement phonon calculations (e.g., `0.2`).
-
-#### Defect Settings
-
-- **`defect_settings`** *(dictionary)*: Configures defect analysis, including vacancy formation energy calculations. Contains:
-  - **`generate_settings`** *(dictionary)*: Contains parameters for defect generation:
-    - **`on_conventional_cell`** *(boolean)*: If `true`, generates defects on a conventional cell.
-    - **`enforce_c_size`** *(int)*: Minimum size constraint for the c-axis (e.g., `8`).
-    - **`extend`** *(int)*: Extends the unit cell to create a supercell (e.g., `1`).
-  - **`filter_type`** *(string)*: Specifies the filter type used during relaxation.
-  - **`relaxation_settings`** *(dictionary)*: Contains settings similar to `bulk_relaxation_settings` (e.g., `constant_volume`, `fmax`, `steps`).
-
-#### Surface Settings
-
-- **`surface_settings`** *(dictionary)*: Configures surface energy calculations. Contains:
-  - **`indices_list`** *(list of lists of integers)*: Specifies Miller indices for surface orientations (e.g., `[[1, 0, 0], [1, 1, 1]]`).
-  - **`layers`** *(int)*: Number of atomic layers in the surface (e.g., `4`).
-  - **`vacuum`** *(float)*: Vacuum thickness in Ångströms (e.g., `18`).
-  - **`filter_type`** *(string)*: Specifies the filter type used during relaxation.
-  - **`relaxation_settings`** *(dictionary)*: Similar to `bulk_relaxation_settings`.
-
-#### Phonon3 Settings
-
-- **`phonon3_settings`** *(dictionary)*: Configures third order force constant calculations for thermal conductivity. Contains:
-  - **`dim`** *(list of integers)*: Supercell dimensions (e.g., `[2, 2, 2]`).
-  - **`distance`** *(float)*: Displacement distance (e.g., `0.2`).
-
-#### MD Settings
-
-- **`md_settings`** *(dictionary)*: Configures parameters for MD simulations, specifically for melting and quenching. Contains:
-  - **`dt`** *(float)*: Time step in femtoseconds (e.g., `1`).
-  - **`temp0`** *(float)*: Initial temperature for melting (e.g., `3500` K).
-  - **`nsteps0`** *(int)*: Number of steps for melting phase (e.g., `1000`).
-  - **`temp1`** *(float)*: Final temperature for quenching (e.g., `300` K).
-  - **`nsteps1`** *(int)*: Number of steps for quenching phase (e.g., `2000`).
-  - **`taut`** *(float)*: Temperature coupling parameter (e.g., `20`).
-  - **`min_size`** *(float)*: Minimum cell size in Ångströms (e.g., `10.0`).
-
-## Usage
-
-### Quickstart: full benchmark for one model (`run_main.py`)
-`run_main.py` runs the **entire** CHIPS-FF property benchmark for a single model
-with one command and prints/saves the MAE-vs-JARVIS-DFT table (lattice `a,c`;
-formation energy; elastic `C11,C44`; bulk modulus `Kv`; monovacancy; surface;
-interface work of adhesion). Pick the model with a flag:
+## Quickstart
 
 ```bash
-python -m chipsff.run_main --alignn_ff        # default MATPES-r2SCAN (auto-downloads)
-python -m chipsff.run_main --alignn_ff --model_path /path/to/model_dir   # your checkpoint (best_model.pt + config.json)
-python -m chipsff.run_main --uma              # Meta UMA (FairChem)
-python -m chipsff.run_main --matgl            # M3GNet-MatPES-PBE
-python -m chipsff.run_main --chgnet
-python -m chipsff.run_main --mace
+python -m chipsff.run_main --alignn_ff        # full benchmark, default MATPES-r2SCAN
+python -m chipsff.run_main --uma              # or --matgl / --chgnet / --mace
+python -m chipsff.run_main --alignn_ff --model_path /path/to/model_dir   # your checkpoint
+python -m chipsff.run_main --alignn_ff --n 5  # quick 5-material smoke test
+```
+Output: a printed MAE table + `chipsff_table_<tag>.csv`, with per-material files
+under `chipsff_frechet_<tag>/`. Chemical potentials are made **self-consistent**
+with the selected model automatically (no stale-chempot correction needed).
+
+## Run only the tasks you want (cheap → expensive)
+
+Tasks are ordered from least to most expensive; each maps to a benchmark column.
+Select a subset instead of the full run:
+
+| Task | Column(s) | Flag example |
+|------|-----------|--------------|
+| `optimize` | lattice a, c · Kv · Ef | `--optimize_only` |
+| `forces` | force error | `--tasks forces` |
+| `elastic` | C11, C44 | `--tasks elastic` |
+| `phonon` | ω_ph | `--tasks phonon` |
+| `surface` | surface energy | `--tasks surface` |
+| `vacancy` | vacancy formation | `--tasks vacancy` |
+| `interface` | work of adhesion | `--tasks interface` |
+| `amorphous` | melt–quench + RDF | `--tasks amorphous` |
+| `kappa` | thermal conductivity | `--tasks kappa` |
+
+```bash
+python -m chipsff.run_main --alignn_ff --optimize_only        # a, c, Kv, Ef only
+python -m chipsff.run_main --uma       --tasks elastic,phonon # a couple of tasks
+python -m chipsff.run_main --chgnet    --up_to elastic        # everything up to elastic
+python -m chipsff.run_main --alignn_ff                        # no flag = full benchmark
 ```
 
-It is self-contained and robust:
-- **Auto-installs** the selected model's Python package if it is not importable
-  (and chipsff's analysis backends `elastic` / `phonopy` / `intermat` as needed).
-- **Self-consistent chemical potentials**: the stored `energy_<calc>` entries are
-  dropped so every elemental reference is recomputed with the *selected* model on
-  the fly (chipsff caches them back) — no stale-chempot correction required. If a
-  chemical potential is missing, chipsff generates it automatically from the
-  bundled element→reference-JID map (`chemical_potentials.json`).
-- Uses the leaderboard protocol (`FrechetCellFilter`, 6 surface millers,
-  defect `enforce_c_size=8`) over the bundled 104-material set (`lb_jids.json`)
-  and interface set (`Interface.csv`).
+Handy switches:
 
-Options:
+| Flag | Effect |
+|------|--------|
+| `--optimize_only` | shortcut for `--tasks optimize` |
+| `--tasks a,b,c` | run an explicit subset |
+| `--up_to STAGE` | cumulative: all tasks up to and including `STAGE` |
+| `--no_relax` | compute on the input (DFT) geometry, skip relaxation |
+| `--all-materials` | vacancy/surface for all 104 (default: only the DFT-reference set that enters the MAE) |
+| `--skip-interfaces` | drop the work-of-adhesion step |
+| `--n N` | first N materials only (`0` = all 104) |
+| `--device cpu` | force CPU |
 
-```bash
-python -m chipsff.run_main --alignn_ff --n 5          # limit to first 5 materials (quick test; 0 = all 104)
-python -m chipsff.run_main --alignn_ff --skip-interfaces   # skip work-of-adhesion
-python -m chipsff.run_main --alignn_ff --phonons      # also compute phonons
-python -m chipsff.run_main --alignn_ff --ref-only     # benchmark-fast: run vacancy/surface only for materials with a DFT reference in vacancydb/surfacedb (33/48 of the 104); skips ~3/4 of defect/surface relaxations, ~2-3x faster, identical n=49/82 MAE
-python -m chipsff.run_main --alignn_ff --device cpu   # force CPU
-```
+The MAE table also reports a **`time_s`** column (mean wall-time per material),
+so you get a timing benchmark alongside accuracy.
 
-Output: a printed table plus `chipsff_table_<tag>.csv`, with per-material results
-under `chipsff_frechet_<tag>/`. (Interface `W_ad` uses chipsff's InterMat
-`calculate_wad` with a `|Wad| <= 7` physical filter; `--phonons` is needed for the
-phonon-band MAE.)
-
-### Optional benchmark tasks (same `run_main.py`, same model flags)
+## Optional discovery / scaling tasks
 
 ```bash
-# Matbench-Discovery diatomic-curve metrics (tortuosity / smoothness of the PES)
-python -m chipsff.run_main --alignn_ff --diatomics
-
-# Single-point inference scaling: timing + peak memory on cubic Si supercells
-# (reports t @ 21,952 atoms, max atoms, and the OOM point)
-python -m chipsff.run_main --alignn_ff --scaling
-
-# WBM / Matbench-Discovery discovery benchmark (relax -> score):
-#   relaxation is shardable for a SLURM array (SHARD/NSHARD)
+python -m chipsff.run_main --alignn_ff --diatomics   # PES smoothness (tortuosity)
+python -m chipsff.run_main --alignn_ff --scaling      # inference timing + peak memory
+# WBM / Matbench-Discovery (shardable relax, then score):
 SHARD=1 NSHARD=490 python -m chipsff.run_main --alignn_ff --wbm-relax \
-    --wbm_zip /path/to/wbm-initial-atoms.extxyz.zip
-#   then score: formation-energy MAE, stability F1, structure RMSD
+    --wbm_zip /path/wbm-initial-atoms.extxyz.zip
 python -m chipsff.run_main --alignn_ff --wbm-score \
-    --leaderboard /path/to/jarvis_leaderboard/jarvis_leaderboard
+    --leaderboard /path/jarvis_leaderboard/jarvis_leaderboard   # Ef MAE, F1, RMSD
 ```
 
-`--wbm-score` (and the leaderboard export) need `matbench_discovery`
-(auto-installed). When `--leaderboard <dir>` is given it writes a
-jarvis-leaderboard-compatible contribution (`AI-SinglePropertyPrediction-e_form-
-wbm-test-mae.csv.zip` + `metadata.json`) so results drop straight into the
-leaderboard.
-
-### Compiling the combined tables (Table 4 / Table 5)
-
-`run_main.py` writes one artifact set per model. After running several models in
-the same directory, merge them into the multi-row paper tables:
+## Combine models into the paper tables
 
 ```bash
 python -m chipsff.run_main --alignn_ff --tag alignn_ff
 python -m chipsff.run_main --matgl     --tag matgl
-python -m chipsff.run_main --alignn_ff --scaling --tag alignn_ff   # (etc.)
-python -m chipsff.compile_tables            # scans the cwd
+python -m chipsff.compile_tables      # scans cwd -> chipsff_table4_properties.{csv,md,tex} + scaling
 ```
 
-It scans for `chipsff_table_<tag>.csv` (properties), `scaling_<tag>/scaling.json`
-(timing/memory), `diatomics_<tag>/diatomics.json` (tortuosity) and
-`wbm_<tag>/wbm_score.json`, and writes **`chipsff_table4_properties.{csv,md,tex}`**
-and **`chipsff_table5_scaling.{csv,md,tex}`** (the `.tex` drops straight into the
-paper).
+## Examples (Colab)
 
-### Running on a cluster (SLURM template)
+- [Structure optimization & error comparison](https://colab.research.google.com/github/knc6/jarvis-tools-notebooks/blob/master/jarvis-tools-notebooks/chipsff_optimization.ipynb)
+- [Scaling / timing](https://colab.research.google.com/github/knc6/jarvis-tools-notebooks/blob/master/jarvis-tools-notebooks/chipsff_scaling.ipynb)
 
-`chipsff/submit_slurm.sh` is a general template driven by env vars
-(`MODEL`, `TASK`, `NSHARD`, `DEVICE`, `EXTRA`, `LB`). Edit the one
-env-activation line, then:
+<details>
+<summary><b>Advanced: per-material analysis from a JSON config</b></summary>
 
-```bash
-MODEL=alignn_ff sbatch chipsff/submit_slurm.sh                      # property table
-MODEL=alignn_ff TASK=diatomics sbatch chipsff/submit_slurm.sh       # tortuosity
-MODEL=alignn_ff TASK=scaling DEVICE=cuda sbatch chipsff/submit_slurm.sh
-MODEL=alignn_ff TASK=wbm NSHARD=490 \
-    EXTRA="--wbm_zip /path/wbm-initial-atoms.extxyz.zip" \
-    sbatch --array=1-490%100 chipsff/submit_slurm.sh                # WBM relax (array)
-MODEL=alignn_ff TASK=wbm-score LB=/path/jarvis_leaderboard/jarvis_leaderboard \
-    sbatch chipsff/submit_slurm.sh                                  # WBM score + leaderboard
-```
+For fine control over a single material or interface, drive the analyzer with a
+config file:
 
-### Per-material analysis (`run_chipsff.py`)
-The `run_chipsff.py` script provides a command-line interface to perform individual materials analyses.
-
-**1. Single Material Analysis**
-To run an analysis on a single material by providing an input.json file:
 ```bash
 python run_chipsff.py --input_file input.json
 ```
-An example `input.json` file: 
-```bash
+
+```json
 {
   "jid": "JVASP-1002",
   "calculator_type": "chgnet",
   "chemical_potentials_file": "chemical_potentials.json",
-  "properties_to_calculate": [
-    "relax_structure",
-    "calculate_ev_curve",
-    "calculate_formation_energy",
-    "calculate_elastic_tensor",
-    "run_phonon_analysis",
-    "analyze_surfaces",
-    "analyze_defects",
-    "run_phonon3_analysis",
-    "general_melter",
-    "calculate_rdf"
-  ],
-"bulk_relaxation_settings": {
-  "filter_type": "ExpCellFilter",
-  "relaxation_settings": {
-    "fmax": 0.05,
-    "steps": 200,
-    "constant_volume": false
-  }
-},
-  "phonon_settings": {
-    "dim": [2, 2, 2],
-    "distance": 0.2
-  },
   "use_conventional_cell": true,
-  "surface_settings": {
-    "indices_list": [
-      [0, 1, 0],
-      [0,0,1]
-    ],
-    "layers": 4,
-    "vacuum": 18,
-    "relaxation_settings": {
-      "fmax": 0.05,
-      "steps": 200,
-      "constant_volume": true
-    },
-    "filter_type": "ExpCellFilter"
-  },
-  "defect_settings": {
-    "generate_settings": {
-      "on_conventional_cell": true,
-      "enforce_c_size": 8,
-      "extend": 1
-    },
-    "relaxation_settings": {
-      "fmax": 0.05,
-      "steps": 200,
-      "constant_volume": true
-    },
-    "filter_type": "ExpCellFilter"
-  },
-  "phonon3_settings": {
-    "dim": [2, 2, 2],
-    "distance": 0.2
-  },
-  "md_settings": {
-    "dt": 1,
-    "temp0": 35,
-    "nsteps0": 10,
-    "temp1": 200,
-    "nsteps1": 20,
-    "taut": 20,
-    "min_size": 10.0
-  }
-}
-```
-**2. Interface Analysis**
-To perform an interface analysis between a film and substrate:
-```bash
-python run_chipsff.py --input_file interface_input.json
-```
-An example `interface_input.json` file:
-```bash
-{
-  "film_id": ["JVASP-1002"],
-  "substrate_id": ["JVASP-816"],
-  "calculator_type": "alignn_ff",
-  "chemical_potentials_file": "chemical_potentials.json",
-  "film_index": "1_1_0",
-  "substrate_index": "1_1_0",
   "properties_to_calculate": [
-    "analyze_interfaces"
-  ]
+    "relax_structure", "calculate_ev_curve", "calculate_formation_energy",
+    "calculate_elastic_tensor", "run_phonon_analysis", "analyze_surfaces",
+    "analyze_defects", "run_phonon3_analysis", "general_melter", "calculate_rdf"
+  ],
+  "bulk_relaxation_settings": {
+    "filter_type": "ExpCellFilter",
+    "relaxation_settings": {"fmax": 0.05, "steps": 200, "constant_volume": false}
+  },
+  "phonon_settings":  {"dim": [2, 2, 2], "distance": 0.2},
+  "surface_settings": {"indices_list": [[0,1,0],[0,0,1]], "layers": 4, "vacuum": 18},
+  "defect_settings":  {"generate_settings": {"on_conventional_cell": true, "enforce_c_size": 8, "extend": 1}},
+  "md_settings":      {"dt": 1, "temp0": 3500, "nsteps0": 1000, "temp1": 300, "nsteps1": 2000}
 }
 ```
-## Key Methods
 
-- `relax_structure()`: Optimizes the atomic structure using the specified calculator and relaxation settings.
-- `calculate_formation_energy(relaxed_atoms)`: Computes the formation energy per atom based on the relaxed structure and chemical potentials.
-- `calculate_elastic_tensor(relaxed_atoms)`: Calculates the elastic tensor for the relaxed structure.
-- `calculate_ev_curve(relaxed_atoms)`: Fits the energy-volume curve using an equation of state to obtain bulk modulus, minimum energy and equilibrium volume.
-- `run_phonon_analysis(relaxed_atoms)`: Performs phonon band structure calculations, density of states, and thermal properties using Phonopy.
-- `analyze_defects()`: Analyzes vacancy formation energies by generating defects, relaxing them, and calculating formation energies.
-- `analyze_surfaces()`: Analyzes surface energies by generating surface structures, relaxing them, and calculating surface energies.
-- `run_phonon3_analysis(relaxed_atoms)`: Runs third order force constant calculations for thermal conductivity using Phono3py.
-- `calculate_thermal_expansion(relaxed_atoms)`: Calculates the thermal expansion coefficient using the Quasi-Harmonic Approximation.
-- `general_melter(relaxed_atoms)`: Performs MD simulations to melt and quench the structure, then calculates the Radial Distribution Function (RDF). Can be used to generate amorphous structures. 
-- `analyze_interfaces()`: Performs interface analysis between film and substrate materials using the `intermat` package.
+Interface run: set `"film_id"`, `"substrate_id"`, `"film_index"`,
+`"substrate_index"` and `"properties_to_calculate": ["analyze_interfaces"]`.
 
-## How to contribute
-For detailed instructions, please see [Contribution instructions](https://github.com/atomgptlab/jarvis/blob/master/Contribution.rst)
+**Analyzer methods**: `relax_structure`, `calculate_formation_energy`,
+`calculate_ev_curve`, `calculate_elastic_tensor`, `run_phonon_analysis`,
+`analyze_defects`, `analyze_surfaces`, `run_phonon3_analysis`,
+`calculate_thermal_expansion`, `general_melter`, `calculate_rdf`,
+`analyze_interfaces`.
+</details>
 
-## Correspondence
-Please report bugs as Github issues (https://github.com/atomgptlab/chipsff/issues) or email to daniel.wines@nist.gov or kamal.choudhary@nist.gov.
+<details>
+<summary><b>Advanced: cluster (SLURM)</b></summary>
 
-## Funding support
-This work was performed with funding from the CHIPS Metrology Program, part of CHIPS for America, National Institute of Standards and Technology, U.S. Department of Commerce.
+`chipsff/submit_slurm.sh` is an env-var-driven template
+(`MODEL`, `TASK`, `NSHARD`, `DEVICE`, `EXTRA`, `LB`):
 
+```bash
+MODEL=alignn_ff sbatch chipsff/submit_slurm.sh                          # property table
+MODEL=alignn_ff TASK=scaling DEVICE=cuda sbatch chipsff/submit_slurm.sh
+MODEL=alignn_ff TASK=wbm NSHARD=490 EXTRA="--wbm_zip /path/wbm.zip" \
+    sbatch --array=1-490%100 chipsff/submit_slurm.sh                    # WBM relax
+```
+</details>
 
-## Code of conduct
-Please see [Code of conduct](https://github.com/atomgptlab/jarvis/blob/master/CODE_OF_CONDUCT.md)
+## Contribute · Contact
+
+Bugs/PRs welcome via [GitHub issues](https://github.com/atomgptlab/chipsff/issues);
+contact daniel.wines@nist.gov or kamal.choudhary@nist.gov.
+See the [contribution guide](https://github.com/atomgptlab/jarvis/blob/master/Contribution.rst)
+and [code of conduct](https://github.com/atomgptlab/jarvis/blob/master/CODE_OF_CONDUCT.md).
+
+## Funding
+
+CHIPS Metrology Program, part of CHIPS for America, National Institute of
+Standards and Technology, U.S. Department of Commerce.

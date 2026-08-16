@@ -117,6 +117,80 @@ def self_consistent_chempots(calc_type, out_dir):
     return dst
 
 
+# ---- selectable tasks, ordered cheap -> expensive ---------------------------
+# Each task maps to chipsff `properties_to_calculate` entries (model-agnostic;
+# works for every REGISTRY calculator). "interface" is a separate loop.
+TASK_ORDER = [
+    "optimize",  # relax + E-V/bulk modulus + formation energy  (a, c, Kv, Ef)
+    "forces",  # single-point forces
+    "elastic",  # elastic tensor (C11, C44)
+    "phonon",  # phonon band structure (omega_ph)
+    "surface",  # surface energies
+    "vacancy",  # monovacancy formation energies
+    "interface",  # work of adhesion (separate interface loop)
+    "amorphous",  # melt-quench MD + RDF
+    "kappa",  # lattice thermal conductivity (phono3py)
+]
+TASK_PROPS = {
+    "optimize": [
+        "relax_structure",
+        "calculate_ev_curve",
+        "calculate_formation_energy",
+    ],
+    "forces": ["calculate_forces"],
+    "elastic": ["calculate_elastic_tensor"],
+    "phonon": ["run_phonon_analysis"],
+    "surface": ["analyze_surfaces"],
+    "vacancy": ["analyze_defects"],
+    "interface": [],  # handled by the interface loop
+    "amorphous": ["general_melter", "calculate_rdf"],
+    "kappa": ["run_phonon3_analysis"],
+}
+# the historical default full run (keeps existing behaviour intact)
+DEFAULT_TASKS = ["optimize", "elastic", "surface", "vacancy", "interface"]
+
+
+def resolve_tasks(args):
+    """Return the ordered list of selected task names from the CLI flags."""
+    if args.optimize_only:
+        sel = ["optimize"]
+    elif args.up_to:
+        if args.up_to not in TASK_ORDER:
+            raise SystemExit(
+                f"--up_to must be one of {TASK_ORDER}, got {args.up_to!r}"
+            )
+        sel = TASK_ORDER[: TASK_ORDER.index(args.up_to) + 1]
+    elif args.tasks:
+        sel = [t.strip() for t in args.tasks.split(",") if t.strip()]
+        bad = [t for t in sel if t not in TASK_ORDER]
+        if bad:
+            raise SystemExit(
+                f"unknown task(s) {bad}; choose from {TASK_ORDER}"
+            )
+    else:
+        sel = list(DEFAULT_TASKS)
+        if args.phonons:
+            sel.append("phonon")
+    if args.skip_interfaces and "interface" in sel:
+        sel.remove("interface")
+    # keep cheap->expensive order, deduped
+    return [t for t in TASK_ORDER if t in set(sel)]
+
+
+def props_for_tasks(sel, relax=True):
+    """Flatten selected tasks -> ordered, deduped properties_to_calculate.
+
+    relax_structure is first when relax=True (every downstream task then uses
+    the relaxed atoms); with relax=False the tasks run on the input geometry.
+    """
+    props = ["relax_structure"] if relax else []
+    for t in sel:
+        for p in TASK_PROPS.get(t, []):
+            if p not in props:
+                props.append(p)
+    return props
+
+
 # ---- exact protocol from chipsff_frechet_run.sh -----------------------------
 def protocol(with_phonons):
     props = [
@@ -197,6 +271,15 @@ def aggregate(out_dir, calc_type, interfaces_dir, iface_rows):
         return (float(np.mean(x)), len(x)) if x else (float("nan"), 0)
 
     la, lc, form, c11, c44, kv, vac, surf = ([] for _ in range(8))
+    # per-material wall time (s), recorded by chipsff in *_error_dat.csv
+    times = []
+    for ed in glob.glob(f"{out_dir}/*/*_{calc_type}/*_error_dat.csv"):
+        try:
+            row = next(csv.DictReader(open(ed)))
+            if row.get("time"):
+                times.append(float(row["time"]))
+        except Exception:
+            pass
     for f in glob.glob(f"{out_dir}/*/*_{calc_type}/*_results.json"):
         try:
             r = json.load(open(f))
@@ -243,6 +326,13 @@ def aggregate(out_dir, calc_type, interfaces_dir, iface_rows):
             except Exception:
                 continue
             if isinstance(dd, dict):
+                # chipsff stores the work of adhesion nested in the z-scan
+                # summary; also honour any top-level convenience keys.
+                zs = dd.get("z_scan_summary")
+                if isinstance(zs, dict) and isinstance(
+                    zs.get("best_z_wad"), (int, float)
+                ):
+                    pred = zs["best_z_wad"]
                 for key in (
                     "best_z_wad",
                     "min_wad",
@@ -266,6 +356,7 @@ def aggregate(out_dir, calc_type, interfaces_dir, iface_rows):
         ("Vac_eV", vac, "%.3f"),
         ("Surf_Jm2", surf, "%.3f"),
         ("Wad_Jm2", wad, "%.3f"),
+        ("time_s", times, "%.1f"),
     ]
     return order, mae
 
@@ -304,6 +395,41 @@ def main():
         "DFT reference in vacancydb/surfacedb (benchmark-fast: skips the "
         "~3/4 of defect/surface relaxations that never enter the MAE; "
         "the n=49/82 table is identical)",
+    )
+    # ---- task selection (cheap -> expensive); default = full benchmark ----
+    ap.add_argument(
+        "--tasks",
+        default="",
+        help="comma list of tasks to run, cheap->expensive: "
+        + ",".join(TASK_ORDER)
+        + ". Default: full benchmark (optimize,elastic,surface,vacancy,"
+        "interface[,phonon if --phonons]).",
+    )
+    ap.add_argument(
+        "--optimize_only",
+        action="store_true",
+        help="shortcut for --tasks optimize: relax + E-V/bulk modulus + "
+        "formation energy (lattice a,c, Kv, Ef) only",
+    )
+    ap.add_argument(
+        "--up_to",
+        default="",
+        help="run every task cheap->expensive up to and including this one "
+        "(e.g. --up_to elastic runs optimize,forces,elastic)",
+    )
+    ap.add_argument(
+        "--all-materials",
+        dest="all_materials",
+        action="store_true",
+        help="compute vacancy/surface for all 104 materials instead of only "
+        "the DFT-reference set (default: reference-gated, benchmark-fast)",
+    )
+    ap.add_argument(
+        "--no_relax",
+        dest="no_relax",
+        action="store_true",
+        help="do NOT relax the bulk structure first; compute the selected "
+        "tasks on the input (DFT) geometry",
     )
     # optional WBM / Matbench-Discovery task (relax on a cluster array, score)
     ap.add_argument(
@@ -408,11 +534,18 @@ def main():
                 )
         return
 
-    # chipsff analysis backends for the property benchmark
-    ensure_package("elastic", "elastic")
-    if args.phonons:
+    # resolve selected tasks (cheap -> expensive) once
+    sel = resolve_tasks(args)
+    print(f"tasks (cheap->expensive): {', '.join(sel)}", flush=True)
+
+    # chipsff analysis backends, installed only for the selected tasks
+    if "elastic" in sel:
+        ensure_package("elastic", "elastic")
+    if "phonon" in sel or "kappa" in sel:
         ensure_package("phonopy", "phonopy")
-    if not args.skip_interfaces:
+    if "kappa" in sel:
+        ensure_package("phono3py", "phono3py")
+    if "interface" in sel:
         ensure_package("intermat", "intermat")
 
     chempot = self_consistent_chempots(calc_type, out_dir)
@@ -436,11 +569,16 @@ def main():
 
     from chipsff.general_material_analyzer import MaterialsAnalyzer
 
-    props, relax, surf, dfc = protocol(args.phonons)
+    props = props_for_tasks(sel, relax=not args.no_relax)
+    _, relax, surf, dfc = protocol(args.phonons)
 
-    # benchmark-fast: restrict vacancy/surface to reference-having materials.
+    # Only compute reference-gated tasks (vacancy, surface) for the materials
+    # that actually have a DFT reference (the only ones that enter the
+    # MAE). On by default; --all-materials computes them for all 104.
+    # (Wad/interfaces already iterate only the referenced Interface.csv pairs.)
+    restrict = not args.all_materials
     vac_ref = surf_ref = None
-    if args.ref_only:
+    if restrict:
         from jarvis.db.figshare import data as _jdata
 
         vac_ref = {e["jid"] for e in _jdata("vacancydb")}
@@ -449,8 +587,9 @@ def main():
             for e in _jdata("surfacedb")
         }
         print(
-            f"ref-only: vacancy for {len(vac_ref)} jids, "
-            f"surface for {len(surf_ref)} jids (others skip those steps)",
+            f"reference-gated: vacancy for {len(vac_ref)} jids, "
+            f"surface for {len(surf_ref)} jids (others skip those steps; "
+            "pass --all-materials to compute for all 104)",
             flush=True,
         )
 
@@ -463,14 +602,13 @@ def main():
             print(f"[{i}/{len(jids)}] {jid} cached", flush=True)
             continue
         mprops = list(props)
-        if args.ref_only:
+        if restrict:
             if jid not in vac_ref and "analyze_defects" in mprops:
                 mprops.remove("analyze_defects")
             if jid not in surf_ref and "analyze_surfaces" in mprops:
                 mprops.remove("analyze_surfaces")
         print(
-            f"[{i}/{len(jids)}] {jid}"
-            + ("" if not args.ref_only else f"  props={len(mprops)}"),
+            f"[{i}/{len(jids)}] {jid}  props={len(mprops)}",
             flush=True,
         )
         run_in(
@@ -489,7 +627,7 @@ def main():
         )
 
     # 2) interfaces -> work of adhesion
-    if not args.skip_interfaces:
+    if "interface" in sel:
 
         def _mi(s):
             return "_".join(list(s))
