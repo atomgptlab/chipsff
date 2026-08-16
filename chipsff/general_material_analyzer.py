@@ -62,6 +62,7 @@ def get_atoms_from_file(path):
     else:
         raise ValueError(f"Unsupported file extension for {path}.")
 
+
 class _Tee:
     """Write to several streams at once (used to show optimizer logs live
     while still capturing them for parsing)."""
