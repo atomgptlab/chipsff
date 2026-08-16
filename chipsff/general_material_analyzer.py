@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 import os
+import sys
 import subprocess
 import time
 import json
@@ -61,6 +62,26 @@ def get_atoms_from_file(path):
     else:
         raise ValueError(f"Unsupported file extension for {path}.")
 
+class _Tee:
+    """Write to several streams at once (used to show optimizer logs live
+    while still capturing them for parsing)."""
+
+    def __init__(self, *streams):
+        self._streams = streams
+
+    def write(self, data):
+        for s in self._streams:
+            s.write(data)
+        return len(data)
+
+    def flush(self):
+        for s in self._streams:
+            try:
+                s.flush()
+            except Exception:
+                pass
+
+
 class MaterialsAnalyzer:
     def __init__(
         self,
@@ -83,7 +104,9 @@ class MaterialsAnalyzer:
         calculator_settings=None,  # New parameter for calculator-specific settings
         dataset=[],
         id_tag="jid",
+        verbose=False,
     ):
+        self.verbose = verbose
         self.jid = None
         self.film_jid = None
         self.substrate_jid = None
@@ -257,11 +280,17 @@ class MaterialsAnalyzer:
             json.dump(self.chemical_potentials, f, indent=4)
 
     def capture_fire_output(self, ase_atoms, fmax, steps):
-        """Capture the output of the FIRE optimizer."""
+        """Run FIRE and capture its log to parse the final energy. When
+        ``self.verbose`` is set, the per-step optimizer lines are also printed
+        live to stdout (tee) so relaxation progress is visible on screen."""
         log_stream = io.StringIO()
-        with contextlib.redirect_stdout(log_stream):
-            dyn = FIRE(ase_atoms)
+        if getattr(self, "verbose", False):
+            dyn = FIRE(ase_atoms, logfile=_Tee(sys.stdout, log_stream))
             dyn.run(fmax=fmax, steps=steps)
+        else:
+            with contextlib.redirect_stdout(log_stream):
+                dyn = FIRE(ase_atoms)
+                dyn.run(fmax=fmax, steps=steps)
         output = log_stream.getvalue().strip()
 
         last_line = output.split("\n")[-1] if output else ""

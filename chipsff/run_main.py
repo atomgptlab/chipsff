@@ -459,6 +459,12 @@ def main():
         help="do NOT relax the bulk structure first; compute the selected "
         "tasks on the input (DFT) geometry",
     )
+    ap.add_argument(
+        "--verbose",
+        action="store_true",
+        help="print per-step optimizer (FIRE) progress live on screen "
+        "during relaxations",
+    )
     # optional WBM / Matbench-Discovery task (relax on a cluster array, score)
     ap.add_argument(
         "--wbm-relax",
@@ -675,6 +681,7 @@ def main():
                 bulk_relaxation_settings=relax,
                 surface_settings=surf,
                 defect_settings=dfc,
+                verbose=args.verbose,
             ).run_all(),
         )
 
