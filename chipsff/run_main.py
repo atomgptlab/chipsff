@@ -125,11 +125,18 @@ TASK_ORDER = [
     "forces",  # single-point forces
     "elastic",  # elastic tensor (C11, C44)
     "phonon",  # phonon band structure (omega_ph)
+    "expansion",  # thermal expansion (QHA)
     "surface",  # surface energies
     "vacancy",  # monovacancy formation energies
     "interface",  # work of adhesion (separate interface loop)
     "amorphous",  # melt-quench MD + RDF
     "kappa",  # lattice thermal conductivity (phono3py)
+    # beyond-CHIPS-FF application tasks (own material sets, chipsff.beyond)
+    "sfe",  # intrinsic stacking-fault energy of FCC metals
+    "voltage",  # battery cathode average voltage
+    "neb",  # vacancy migration barrier (climbing-image NEB)
+    "diffusion",  # Li tracer diffusivity (MSD from MD)
+    "wbm",  # WBM / Matbench-Discovery relax + score (separate dataset)
 ]
 TASK_PROPS = {
     "optimize": [
@@ -140,11 +147,17 @@ TASK_PROPS = {
     "forces": ["calculate_forces"],
     "elastic": ["calculate_elastic_tensor"],
     "phonon": ["run_phonon_analysis"],
+    "expansion": ["calculate_thermal_expansion"],
     "surface": ["analyze_surfaces"],
     "vacancy": ["analyze_defects"],
     "interface": [],  # handled by the interface loop
     "amorphous": ["general_melter", "calculate_rdf"],
     "kappa": ["run_phonon3_analysis"],
+    "sfe": [],  # handled by the beyond-CHIPS-FF block
+    "voltage": [],
+    "neb": [],
+    "diffusion": [],
+    "wbm": [],  # handled by the WBM relax+score block
 }
 # the historical default full run (keeps existing behaviour intact)
 DEFAULT_TASKS = ["optimize", "elastic", "surface", "vacancy", "interface"]
@@ -261,7 +274,7 @@ def run_in(wd, fn):
 
 def aggregate(out_dir, calc_type, interfaces_dir, iface_rows):
     import numpy as np
-    from jarvis.db.figshare import data
+    from chipsff.utils import cached_data as data
 
     BY = {
         x["jid"]: x for x in data("dft_3d")
@@ -365,7 +378,7 @@ def main():
     ap = argparse.ArgumentParser(
         description="Full CHIPS-FF benchmark for one model."
     )
-    g = ap.add_mutually_exclusive_group(required=True)
+    g = ap.add_mutually_exclusive_group(required=False)
     for flag in REGISTRY:
         g.add_argument(
             f"--{flag}", action="store_true", help=f"use the {flag} calculator"
@@ -374,6 +387,21 @@ def main():
         "--model_path",
         default="",
         help="ALIGNN-FF checkpoint dir (best_model.pt+config.json)",
+    )
+    ap.add_argument(
+        "--ase-calc",
+        dest="ase_calc",
+        default="",
+        help="generic ASE calculator spec 'module.path:callable_or_Class' "
+        "(imported and, if callable, called with --calc-kwargs). Use this "
+        "for any force field that ships an ASE calculator, no chipsff code "
+        "needed, e.g. --ase-calc 'mace.calculators:mace_mp'",
+    )
+    ap.add_argument(
+        "--calc-kwargs",
+        dest="calc_kwargs",
+        default="",
+        help='JSON dict of kwargs for --ase-calc, e.g. \'{"device":"cpu"}\'',
     )
     ap.add_argument("--device", default="cuda")
     ap.add_argument(
@@ -473,25 +501,37 @@ def main():
     )
     args = ap.parse_args()
 
-    model = next(k for k in REGISTRY if getattr(args, k))
-    calc_type, imp, pip_name, settings = REGISTRY[model]
-    tag = args.tag or (
-        model
-        if not args.model_path
-        else os.path.basename(args.model_path.rstrip("/"))
-    )
+    selected = [k for k in REGISTRY if getattr(args, k)]
+    if args.ase_calc:
+        # generic bring-your-own ASE calculator (no per-model code)
+        model = imp = pip_name = None
+        calc_type = "ase"
+        CSET = {"ase": {"spec": args.ase_calc, "kwargs": args.calc_kwargs}}
+        tag = args.tag or args.ase_calc.split(":")[-1].split(".")[-1]
+    elif selected:
+        model = selected[0]
+        calc_type, imp, pip_name, settings = REGISTRY[model]
+        CSET = settings(args)
+        tag = args.tag or (
+            model
+            if not args.model_path
+            else os.path.basename(args.model_path.rstrip("/"))
+        )
+    else:
+        ap.error("pick a model (e.g. --alignn_ff) or --ase-calc <spec>")
+
     out_dir = os.path.abspath(f"chipsff_frechet_{tag}")
     iface_dir = os.path.abspath(f"iface_{tag}")
     os.makedirs(out_dir, exist_ok=True)
     os.makedirs(iface_dir, exist_ok=True)
 
     print(
-        f"=== CHIPS-FF full benchmark: model={model} calc={calc_type} "
+        f"=== CHIPS-FF benchmark: calc={calc_type} "
         f"tag={tag} device={args.device} ===",
         flush=True,
     )
-    ensure_package(imp, pip_name)
-    CSET = settings(args)
+    if imp:
+        ensure_package(imp, pip_name)
 
     # ---- optional WBM / Matbench-Discovery task ----
     if args.wbm_relax or args.wbm_score or args.diatomics or args.scaling:
@@ -541,7 +581,7 @@ def main():
     # chipsff analysis backends, installed only for the selected tasks
     if "elastic" in sel:
         ensure_package("elastic", "elastic")
-    if "phonon" in sel or "kappa" in sel:
+    if "phonon" in sel or "kappa" in sel or "expansion" in sel:
         ensure_package("phonopy", "phonopy")
     if "kappa" in sel:
         ensure_package("phono3py", "phono3py")
@@ -579,7 +619,7 @@ def main():
     restrict = not args.all_materials
     vac_ref = surf_ref = None
     if restrict:
-        from jarvis.db.figshare import data as _jdata
+        from chipsff.utils import cached_data as _jdata
 
         vac_ref = {e["jid"] for e in _jdata("vacancydb")}
         surf_ref = {
@@ -593,8 +633,20 @@ def main():
             flush=True,
         )
 
-    # 1) per-material suite
-    for i, jid in enumerate(jids, 1):
+    # 1) per-material suite (skip the 104-loop if only special tasks selected)
+    per_material = any(
+        t in sel
+        for t in (
+            "optimize",
+            "forces",
+            "elastic",
+            "phonon",
+            "expansion",
+            "surface",
+            "vacancy",
+        )
+    )
+    for i, jid in enumerate(jids if per_material else [], 1):
         wd = os.path.join(out_dir, jid)
         if glob.glob(
             f"{wd}/**/{jid}_{calc_type}_results.json", recursive=True
@@ -657,6 +709,55 @@ def main():
                 ).analyze_interfaces(),
             )
             open(os.path.join(wd, ".done"), "w").close()
+
+    # 2a) beyond-CHIPS-FF application tasks (own material sets, own references)
+    beyond_sel = [
+        t for t in ("sfe", "voltage", "neb", "diffusion") if t in sel
+    ]
+    if beyond_sel:
+        from chipsff.calcs import setup_calculator
+        from chipsff import beyond as _beyond
+
+        bcalc = setup_calculator(calc_type, CSET[calc_type])
+        brows = []
+        for t in beyond_sel:
+            try:
+                res = _beyond.TASKS[t](bcalc)
+                mae = res.get("mae")
+                print(
+                    f"[beyond] {t}: MAE="
+                    + ("--" if mae is None else f"{mae:.3f}")
+                    + f" {res['unit']}  {res['rows']}",
+                    flush=True,
+                )
+                brows.append([t, mae, res["unit"]])
+            except Exception as e:
+                print(f"[beyond] {t} FAILED: {e}", flush=True)
+        bpath = os.path.abspath(f"chipsff_beyond_{tag}.csv")
+        with open(bpath, "w", newline="") as fh:
+            w = csv.writer(fh)
+            w.writerow(["task", "mae", "unit"])
+            w.writerows(brows)
+        print(f"saved {bpath}", flush=True)
+
+    # 2b) WBM / Matbench-Discovery (separate dataset): relax a shard + score.
+    # Heavy and normally cluster-sharded; obeys SHARD/NSHARD env or --shard/
+    # --nshard. Prints Ef MAE / stability F1 / RMSD.
+    if "wbm" in sel:
+        from chipsff.calcs import setup_calculator
+        from chipsff import wbm as _wbm
+
+        ensure_package("matbench_discovery", "matbench-discovery")
+        wcalc = setup_calculator(calc_type, CSET[calc_type])
+        wout = os.path.abspath(args.out or f"wbm_{tag}")
+        shard = args.shard or int(os.environ.get("SLURM_ARRAY_TASK_ID", "1"))
+        nshard = args.nshard or int(os.environ.get("NSHARD", "490"))
+        print(f"WBM: relaxing shard {shard}/{nshard} -> {wout}", flush=True)
+        _wbm.relax(wcalc, shard, nshard, wout, wbm_zip=args.wbm_zip)
+        try:
+            print("WBM metrics:", _wbm.score(wout, calc=wcalc), flush=True)
+        except Exception as e:
+            print(f"WBM score skipped (need all shards): {e}", flush=True)
 
     # 3) aggregate + print/save table
     order, mae = aggregate(out_dir, calc_type, iface_dir, iface_rows)

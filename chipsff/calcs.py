@@ -21,7 +21,8 @@ def setup_calculator(calculator_type, calculator_settings):
         from matgl.ext.ase import PESCalculator
 
         model_name = calculator_settings.get(
-            "model", "M3GNet-PES-MatPES-PBE-2025.2")
+            "model", "M3GNet-PES-MatPES-PBE-2025.2"
+        )
         pot = matgl.load_model(model_name)
         return PESCalculator(pot, stress_unit="eV/A3", stress_weight=1.0)
 
@@ -50,14 +51,19 @@ def setup_calculator(calculator_type, calculator_settings):
             "model_filename", "best_model.pt"
         )
         ff_kwargs = {"path": path, "model_filename": model_filename}
-        for key in ("device", "stress_wt", "force_mult_natoms",
-                    "force_multiplier"):
+        for key in (
+            "device",
+            "stress_wt",
+            "force_mult_natoms",
+            "force_multiplier",
+        ):
             if key in calculator_settings:
                 ff_kwargs[key] = calculator_settings[key]
         return AlignnAtomwiseCalculator(**ff_kwargs)
     elif calculator_type == "fairchem":
         # FairChem universal models (e.g. Meta UMA). Requires fairchem-core v2.
         from fairchem.core import pretrained_mlip, FAIRChemCalculator
+
         model_name = calculator_settings.get("model_name", "uma-s-1p1")
         device = calculator_settings.get("device", "cuda")
         task_name = calculator_settings.get("task_name", "omat")
@@ -67,7 +73,9 @@ def setup_calculator(calculator_type, calculator_settings):
     elif calculator_type == "mattersim":
         from mattersim.forcefield import MatterSimCalculator
 
-        return MatterSimCalculator(load_path="MatterSim-v1.0.0-5M.pth", device="cpu")
+        return MatterSimCalculator(
+            load_path="MatterSim-v1.0.0-5M.pth", device="cpu"
+        )
 
     elif calculator_type == "chgnet":
         from chgnet.model.dynamics import CHGNetCalculator
@@ -181,8 +189,12 @@ def setup_calculator(calculator_type, calculator_settings):
         )
         return OCPCalculator(checkpoint_path=checkpoint_path)
 
-    elif calculator_type in ("slakonet", "slakonet_v0", "slakonet_v1",
-                             "slakonet_v1a"):
+    elif calculator_type in (
+        "slakonet",
+        "slakonet_v0",
+        "slakonet_v1",
+        "slakonet_v1a",
+    ):
         # SlakoNet: universal DFTB (tight-binding) parameter sets.
         # https://github.com/atomgptlab/slakonet
         import torch
@@ -225,6 +237,28 @@ def setup_calculator(calculator_type, calculator_settings):
             device=device,
             compute_forces=calculator_settings.get("compute_forces", True),
         )
+
+    elif calculator_type == "ase":
+        # Generic bring-your-own ASE calculator: no per-model code needed.
+        # settings["spec"] = "module.path:callable_or_Class" (imported and,
+        # if callable, called with settings["kwargs"]); returns an ASE calc.
+        # Lets any new force field with an ASE calculator plug in directly.
+        import importlib
+        import json as _json
+
+        spec = calculator_settings.get("spec")
+        if not spec:
+            raise ValueError("calculator_type 'ase' needs settings['spec']")
+        kwargs = calculator_settings.get("kwargs") or {}
+        if isinstance(kwargs, str):
+            kwargs = _json.loads(kwargs) if kwargs.strip() else {}
+        mod_name, _, attr = spec.partition(":")
+        if not attr:
+            raise ValueError(
+                "spec must be 'module.path:callable_or_Class', got " + spec
+            )
+        obj = getattr(importlib.import_module(mod_name), attr)
+        return obj(**kwargs) if callable(obj) else obj
 
     else:
         raise ValueError(f"Unsupported calculator type: {calculator_type}")

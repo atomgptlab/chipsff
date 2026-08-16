@@ -93,7 +93,9 @@ class MaterialsAnalyzer:
         self.bulk_relaxation_settings = bulk_relaxation_settings or {}
         self.dataset = dataset
         if not self.dataset:
-            self.dataset = data("dft_3d")
+            from chipsff.utils import cached_data
+
+            self.dataset = cached_data("dft_3d")
         self.id_tag = id_tag
         self.phonon_settings = phonon_settings or {
             "dim": [2, 2, 2],
@@ -194,8 +196,8 @@ class MaterialsAnalyzer:
                 return entry
         # fall back to dft_2d (2D-material jids, e.g. for interfaces); cache it
         if not hasattr(self, "_dft_2d"):
-            from jarvis.db.figshare import data as _jdata
-            self._dft_2d = _jdata("dft_2d")
+            from chipsff.utils import cached_data
+            self._dft_2d = cached_data("dft_2d")
         for entry in self._dft_2d:
             if entry.get(self.id_tag) == jid:
                 return entry
@@ -1012,8 +1014,10 @@ class MaterialsAnalyzer:
         from sklearn.metrics import mean_absolute_error
         import os
 
-        # 1) Load the entire vacancy dataset
-        vacancydb = data("vacancydb")
+        # 1) Load the entire vacancy dataset (cached across materials)
+        from chipsff.utils import cached_data
+
+        vacancydb = cached_data("vacancydb")
 
         # 2) Filter for entries matching our current JID
         matched_defects = [d for d in vacancydb if d["jid"] == self.jid]

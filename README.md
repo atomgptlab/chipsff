@@ -30,6 +30,14 @@ python -m chipsff.run_main --uma              # or --matgl / --chgnet / --mace
 python -m chipsff.run_main --alignn_ff --model_path /path/to/model_dir   # your checkpoint
 python -m chipsff.run_main --alignn_ff --n 5  # quick 5-material smoke test
 ```
+
+**Any force field, no chipsff code needed.** If your model ships an ASE
+calculator, point `--ase-calc` at it (a `module:callable_or_Class` spec):
+```bash
+python -m chipsff.run_main --ase-calc "mace.calculators:mace_mp" --optimize_only
+python -m chipsff.run_main --ase-calc "orb_models.forcefield.calculator:ORBCalculator" \
+    --calc-kwargs '{"device":"cpu"}' --tasks elastic
+```
 Output: a printed MAE table + `chipsff_table_<tag>.csv`, with per-material files
 under `chipsff_frechet_<tag>/`. Chemical potentials are made **self-consistent**
 with the selected model automatically (no stale-chempot correction needed).
@@ -45,11 +53,17 @@ Select a subset instead of the full run:
 | `forces` | force error | `--tasks forces` |
 | `elastic` | C11, C44 | `--tasks elastic` |
 | `phonon` | ω_ph | `--tasks phonon` |
+| `expansion` | thermal expansion (QHA) | `--tasks expansion` |
 | `surface` | surface energy | `--tasks surface` |
 | `vacancy` | vacancy formation | `--tasks vacancy` |
 | `interface` | work of adhesion | `--tasks interface` |
 | `amorphous` | melt–quench + RDF | `--tasks amorphous` |
 | `kappa` | thermal conductivity | `--tasks kappa` |
+| `sfe` | stacking-fault energy (FCC metals) | `--tasks sfe` |
+| `voltage` | battery cathode voltage | `--tasks voltage` |
+| `neb` | vacancy migration barrier | `--tasks neb` |
+| `diffusion` | Li tracer diffusivity | `--tasks diffusion` |
+| `wbm` | WBM / Matbench-Discovery relax + score | `--tasks wbm` |
 
 ```bash
 python -m chipsff.run_main --alignn_ff --optimize_only        # a, c, Kv, Ef only

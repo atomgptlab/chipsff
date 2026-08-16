@@ -2,12 +2,23 @@
 import json
 from jarvis.db.figshare import data
 
+# Load each jarvis dataset once per process. The zips are large (dft_3d ~48 MB)
+# and re-loading them for every material dominates a multi-material benchmark.
+_DATASET_CACHE = {}
+
+
+def cached_data(name):
+    """Return a jarvis dataset, loading (and caching) it only once."""
+    if name not in _DATASET_CACHE:
+        _DATASET_CACHE[name] = data(name)
+    return _DATASET_CACHE[name]
+
 
 def collect_data():
     # def collect_data(dft_3d, vacancydb, surface_data):
-    dft_3d = data("dft_3d")
-    vacancydb = data("vacancydb")
-    surface_data = data("surfacedb")
+    dft_3d = cached_data("dft_3d")
+    vacancydb = cached_data("vacancydb")
+    surface_data = cached_data("surfacedb")
     defect_ids = list(set([entry["jid"] for entry in vacancydb]))
     surf_ids = list(
         set(
