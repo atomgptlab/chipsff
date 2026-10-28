@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 import os
+import traceback
 import pandas as pd
 import plotly.express as px
 import argparse
@@ -19,8 +20,12 @@ def analyze_multiple_structures(
     """
     Analyzes multiple structures (by JID) with multiple calculators
     and aggregates error metrics.
+
+    A material that fails is reported and skipped rather than stopping
+    the batch. Returns a list of (jid, calculator_type) pairs that failed.
     """
     composite_error_data = {}
+    failures = []
 
     for calculator_type in calculator_types:
         # List to store individual error DataFrames
@@ -32,24 +37,34 @@ def analyze_multiple_structures(
             calc_settings = kwargs.get("calculator_settings", {}).get(
                 calculator_type, {}
             )
-            analyzer = MaterialsAnalyzer(
-                jid=jid,
-                calculator_type=calculator_type,
-                chemical_potentials_file=chemical_potentials_file,
-                bulk_relaxation_settings=kwargs.get("bulk_relaxation_settings"),
-                phonon_settings=kwargs.get("phonon_settings"),
-                properties_to_calculate=kwargs.get("properties_to_calculate"),
-                use_conventional_cell=kwargs.get("use_conventional_cell", False),
-                surface_settings=kwargs.get("surface_settings"),
-                defect_settings=kwargs.get("defect_settings"),
-                phonon3_settings=kwargs.get("phonon3_settings"),
-                md_settings=kwargs.get("md_settings"),
-                calculator_settings=calc_settings,  # Pass calculator-specific settings
-            )
-            # Run analysis and get error data
-            error_dat = analyzer.run_all()
+            try:
+                analyzer = MaterialsAnalyzer(
+                    jid=jid,
+                    calculator_type=calculator_type,
+                    chemical_potentials_file=chemical_potentials_file,
+                    bulk_relaxation_settings=kwargs.get("bulk_relaxation_settings"),
+                    phonon_settings=kwargs.get("phonon_settings"),
+                    properties_to_calculate=kwargs.get("properties_to_calculate"),
+                    use_conventional_cell=kwargs.get("use_conventional_cell", False),
+                    surface_settings=kwargs.get("surface_settings"),
+                    defect_settings=kwargs.get("defect_settings"),
+                    phonon3_settings=kwargs.get("phonon3_settings"),
+                    md_settings=kwargs.get("md_settings"),
+                    calculator_settings=calc_settings,  # Pass calculator-specific settings
+                )
+                # Run analysis and get error data
+                error_dat = analyzer.run_all()
+            except Exception:
+                traceback.print_exc()
+                print(f"Analysis of {jid} with {calculator_type} failed; skipping it.")
+                failures.append((jid, calculator_type))
+                continue
             error_df = pd.DataFrame([error_dat])
             error_dfs.append(error_df)
+
+        if not error_dfs:
+            print(f"No successful analyses with {calculator_type}.")
+            continue
 
         # Concatenate all error DataFrames
         all_errors_df = pd.concat(error_dfs, ignore_index=True)
@@ -60,14 +75,17 @@ def analyze_multiple_structures(
         # Store the composite error data for this calculator type
         composite_error_data[calculator_type] = composite_error
 
-    # Once all materials and calculators have been processed, create a DataFrame
-    composite_df = pd.DataFrame(composite_error_data).transpose()
+    if composite_error_data:
+        # Once all materials and calculators have been processed, create a DataFrame
+        composite_df = pd.DataFrame(composite_error_data).transpose()
 
-    # Plot the composite scorecard
-    plot_composite_scorecard(composite_df)
+        # Save the composite dataframe
+        composite_df.to_csv("composite_error_data.csv", index=True)
 
-    # Save the composite dataframe
-    composite_df.to_csv("composite_error_data.csv", index=True)
+        # Plot the composite scorecard
+        plot_composite_scorecard(composite_df)
+
+    return failures
 
 
 def analyze_multiple_interfaces(
@@ -205,9 +223,11 @@ def main():
         else []
     )
 
+    failures = []
+
     # Scenario 5: Batch Processing for Multiple JIDs and Calculators
     if input_file_data.jid_list and input_file_data.calculator_types:
-        analyze_multiple_structures(
+        failures = analyze_multiple_structures(
             jid_list=input_file_data.jid_list,
             calculator_types=input_file_data.calculator_types,
             chemical_potentials_file=input_file_data.chemical_potentials_file,
@@ -224,7 +244,7 @@ def main():
 
     else:
         # Scenario 1 & 3: Single or Multiple JIDs with Single or Multiple Calculators
-        if jid_list and tqdm(calculator_list, total=len(calculator_list)):
+        if jid_list and calculator_list:
             for jid in tqdm(jid_list, total=len(jid_list)):
                 for calculator_type in calculator_list:
                     print(f"Analyzing {jid} with {calculator_type}...")
@@ -232,21 +252,26 @@ def main():
                     calc_settings = (
                         input_file_data.calculator_settings.get(calculator_type, {})
                     )
-                    analyzer = MaterialsAnalyzer(
-                        jid=jid,
-                        calculator_type=calculator_type,
-                        chemical_potentials_file=input_file_data.chemical_potentials_file,
-                        bulk_relaxation_settings=input_file_data.bulk_relaxation_settings,
-                        phonon_settings=input_file_data.phonon_settings,
-                        properties_to_calculate=input_file_data.properties_to_calculate,
-                        use_conventional_cell=input_file_data.use_conventional_cell,
-                        surface_settings=input_file_data.surface_settings,
-                        defect_settings=input_file_data.defect_settings,
-                        phonon3_settings=input_file_data.phonon3_settings,
-                        md_settings=input_file_data.md_settings,
-                        calculator_settings=calc_settings,
-                    )
-                    analyzer.run_all()
+                    try:
+                        analyzer = MaterialsAnalyzer(
+                            jid=jid,
+                            calculator_type=calculator_type,
+                            chemical_potentials_file=input_file_data.chemical_potentials_file,
+                            bulk_relaxation_settings=input_file_data.bulk_relaxation_settings,
+                            phonon_settings=input_file_data.phonon_settings,
+                            properties_to_calculate=input_file_data.properties_to_calculate,
+                            use_conventional_cell=input_file_data.use_conventional_cell,
+                            surface_settings=input_file_data.surface_settings,
+                            defect_settings=input_file_data.defect_settings,
+                            phonon3_settings=input_file_data.phonon3_settings,
+                            md_settings=input_file_data.md_settings,
+                            calculator_settings=calc_settings,
+                        )
+                        analyzer.run_all()
+                    except Exception:
+                        traceback.print_exc()
+                        print(f"Analysis of {jid} with {calculator_type} failed; skipping it.")
+                        failures.append((jid, calculator_type))
 
     # Scenario 2 & 4: Interface Calculations (Multiple Calculators and/or JIDs)
     if film_jids and substrate_jids and calculator_list:
@@ -314,6 +339,11 @@ def main():
             ),
         )
         mptrj_analyzer.run()
+
+    # Exit with an error if any structure analysis failed
+    if failures:
+        failed = ", ".join(f"{jid} ({calc})" for jid, calc in failures)
+        raise SystemExit(f"{len(failures)} analyses failed: {failed}")
 
 
 if __name__ == "__main__":

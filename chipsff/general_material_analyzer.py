@@ -22,13 +22,11 @@ from jarvis.core.kpoints import Kpoints3D as Kpoints
 from jarvis.analysis.defects.vacancy import Vacancy
 from jarvis.analysis.defects.surface import Surface
 import pandas as pd
-import h5py
 import shutil
 import glob
 import io
 import logging
 import contextlib
-import re
 from sklearn.metrics import mean_absolute_error
 from chipsff.calcs import setup_calculator
 from chipsff.utils import (
@@ -38,6 +36,9 @@ from chipsff.utils import (
     load_dict_from_json,
     get_vacancy_energy_entry,
     get_surface_energy_entry,
+    reference_value,
+    elastic_reference,
+    absolute_error,
 )
 
 # dft_3d = data("dft_3d")
@@ -281,7 +282,7 @@ class MaterialsAnalyzer:
             json.dump(self.chemical_potentials, f, indent=4)
 
     def capture_fire_output(self, ase_atoms, fmax, steps):
-        """Run FIRE and capture its log to parse the final energy. When
+        """Run FIRE and return the final energy and the steps taken. When
         ``self.verbose`` is set, the per-step optimizer lines are also printed
         live to stdout (tee) so relaxation progress is visible on screen."""
         log_stream = io.StringIO()
@@ -292,15 +293,11 @@ class MaterialsAnalyzer:
             with contextlib.redirect_stdout(log_stream):
                 dyn = FIRE(ase_atoms)
                 dyn.run(fmax=fmax, steps=steps)
-        output = log_stream.getvalue().strip()
 
-        last_line = output.split("\n")[-1] if output else ""
-        # Regex to capture the energy in a line like:
-        # "FIRE:   8  0:00:00 -146.123456"
-        match = re.search(r"FIRE:\s+\d+\s+\d+:\d+:\d+\s+(-?\d+\.\d+)", last_line)
-
-        # If there's a match, parse it; otherwise default to 0.0
-        final_energy = float(match.group(1)) if match else 0.0
+        # Read the energy from the atoms rather than parsing the optimizer log.
+        # Cell filters wrap the atoms being relaxed in `.atoms`.
+        atoms = getattr(ase_atoms, "atoms", ase_atoms)
+        final_energy = atoms.get_potential_energy()
 
         return final_energy, dyn.nsteps
 
@@ -366,36 +363,63 @@ class MaterialsAnalyzer:
         # Return final structure for subsequent steps
         return relaxed_atoms
 
-    def get_bulk_reference_energy(self, purpose=""):
+    def get_bulk_atoms(self, relaxed_atoms=None):
+        """
+        Return the bulk structure that defect and surface cells are built from.
+
+        This must be the structure whose energy is used as the bulk reference;
+        otherwise the strain between the input (DFT) lattice and the force
+        field's relaxed lattice ends up in the formation energies.
+        """
+        if relaxed_atoms is not None:
+            return relaxed_atoms
+        if "relaxed_atoms" in self.job_info:
+            return Atoms.from_dict(self.job_info["relaxed_atoms"])
+        self.log("No relaxed structure available; using the input structure.")
+        return self.atoms
+
+    def get_bulk_reference_energy(self, purpose="", bulk_atoms=None):
         """Bulk reference energy for defect / surface / formation energies.
 
         `equilibrium_energy` comes from the E-V fit, which is only run when
         `calculate_ev_curve` is in properties_to_calculate. Fall back to the
-        relaxed bulk energy so those analyses work without it. Returns None
-        if neither is available, so callers can skip rather than silently
-        use 0.0.
+        relaxed bulk energy, then to a single-point energy of `bulk_atoms`, so
+        those analyses work without it. Returns None if none is available, so
+        callers can skip rather than silently use 0.0.
         """
         e0 = self.job_info.get("equilibrium_energy")
         if e0 is not None:
             return e0
         e0 = self.job_info.get("final_energy_structure")
-        if e0 is None:
+        if e0 is not None:
             self.log(
-                "No equilibrium_energy or final_energy_structure available; "
-                f"skipping {purpose or 'this analysis'}."
+                f"No E-V fit available; using relaxed bulk energy {e0} eV "
+                f"for {purpose or 'the reference energy'}."
             )
-            return None
+            return e0
+        if bulk_atoms is not None:
+            ase_atoms = bulk_atoms.ase_converter()
+            ase_atoms.calc = self.calculator
+            e0 = ase_atoms.get_potential_energy()
+            self.log(
+                f"No E-V fit or relaxed energy; using the single-point bulk "
+                f"energy {e0} eV for {purpose or 'the reference energy'}."
+            )
+            return e0
         self.log(
-            f"No E-V fit available; using relaxed bulk energy {e0} eV "
-            f"for {purpose or 'the reference energy'}."
+            "No equilibrium_energy or final_energy_structure available; "
+            f"skipping {purpose or 'this analysis'}."
         )
-        return e0
+        return None
 
     def calculate_formation_energy(self, relaxed_atoms):
         """
         Calculate the formation energy per atom using the equilibrium energy and chemical potentials.
+        Returns None if a chemical potential is missing.
         """
-        e0 = self.get_bulk_reference_energy("the formation energy")
+        e0 = self.get_bulk_reference_energy(
+            "the formation energy", bulk_atoms=relaxed_atoms
+        )
         if e0 is None:
             return None
         composition = relaxed_atoms.composition.to_dict()
@@ -405,9 +429,9 @@ class MaterialsAnalyzer:
             chemical_potential = self.get_chemical_potential(element)
             if chemical_potential is None:
                 self.log(
-                    f"Skipping formation energy calculation due to missing chemical potential for {element}."
+                    f"Cannot calculate formation energy: missing chemical potential for {element}."
                 )
-                continue  # Or handle this appropriately
+                return None
             total_energy -= chemical_potential * amount
 
         formation_energy_per_atom = total_energy / relaxed_atoms.num_atoms
@@ -915,8 +939,13 @@ class MaterialsAnalyzer:
             print(err_msg)
             return None, None
 
-    def analyze_defects(self):
-        """Analyze defects by generating, relaxing, and calculating vacancy formation energy."""
+    def analyze_defects(self, relaxed_atoms=None):
+        """
+        Analyze defects by generating, relaxing, and calculating vacancy formation energy.
+
+        Defect supercells are built from the relaxed bulk structure (see `get_bulk_atoms`).
+        Defects are named "<jid>_<element>_<wyckoff letter>", matching the vacancydb ids.
+        """
         self.log("Starting defect analysis...")
 
         generate_settings = self.defect_settings.get("generate_settings", {})
@@ -924,8 +953,18 @@ class MaterialsAnalyzer:
         enforce_c_size = generate_settings.get("enforce_c_size", 8)
         extend = generate_settings.get("extend", 1)
 
+        bulk_atoms = self.get_bulk_atoms(relaxed_atoms)
+        e0 = self.get_bulk_reference_energy(
+            "the vacancy formation energy", bulk_atoms=bulk_atoms
+        )
+        if e0 is None:
+            self.job_info["all_vacancies"] = []
+            save_dict_to_json(self.job_info, self.get_job_info_filename())
+            return
+        bulk_energy_per_atom = e0 / bulk_atoms.num_atoms
+
         # Generate defect structures
-        defect_structures = Vacancy(self.atoms).generate_defects(
+        defect_structures = Vacancy(bulk_atoms).generate_defects(
             on_conventional_cell=on_conventional_cell,
             enforce_c_size=enforce_c_size,
             extend=extend,
@@ -934,24 +973,22 @@ class MaterialsAnalyzer:
         all_vac_data = []
 
         for defect in defect_structures:
-            element = defect.to_dict()["symbol"]
-            defect_name = f"{self.jid}_{element}"
+            defect_dict = defect.to_dict()
+            element = defect_dict["symbol"]
+            # wyckoff_multiplicity looks like "a_Si"
+            wyckoff = defect_dict["wyckoff_multiplicity"].split("_")[0]
+            defect_name = f"{self.jid}_{element}_{wyckoff}"
             self.log(f"Analyzing defect: {defect_name}")
 
-            defect_structure = Atoms.from_dict(defect.to_dict()["defect_structure"])
+            defect_structure = Atoms.from_dict(defect_dict["defect_structure"])
             relaxed_defect_atoms = self.relax_defect_structure(defect_structure, name=defect_name)
             if relaxed_defect_atoms is None:
                 self.log(f"Skipping {defect_name} due to failed relaxation.")
                 continue
 
             vacancy_energy = self.job_info.get(f"final_energy_defect for {defect_name}", None)
-            e0 = self.get_bulk_reference_energy("the vacancy formation energy")
-            if e0 is None:
-                continue
-            bulk_energy = (
-                e0 / self.atoms.num_atoms * (defect_structure.num_atoms + 1)
-            )
-            if vacancy_energy is None or bulk_energy == 0.0:
+            bulk_energy = bulk_energy_per_atom * (defect_structure.num_atoms + 1)
+            if vacancy_energy is None:
                 self.log(f"Skipping {defect_name} due to missing energy values.")
                 continue
 
@@ -1137,12 +1174,22 @@ class MaterialsAnalyzer:
 
 
 
-    def analyze_surfaces(self):
+    def analyze_surfaces(self, relaxed_atoms=None):
         """
         Perform surface analysis by generating surface structures, relaxing them,
         and calculating surface energies.
+
+        Slabs are built from the relaxed bulk structure (see `get_bulk_atoms`).
         """
         self.log(f"Analyzing surfaces for {self.jid}")
+        bulk_atoms = self.get_bulk_atoms(relaxed_atoms)
+        bulk_energy = self.get_bulk_reference_energy(
+            "the surface energy", bulk_atoms=bulk_atoms
+        )
+        if bulk_energy is None:
+            self.job_info["all_surfaces"] = []
+            save_dict_to_json(self.job_info, self.get_job_info_filename())
+            return
 
         indices_list = self.surface_settings.get(
             "indices_list",
@@ -1163,7 +1210,7 @@ class MaterialsAnalyzer:
         for indices in indices_list:
             # Generate surface and skip if polar
             surface = (
-                Surface(self.atoms, indices=indices, layers=layers, vacuum=vacuum)
+                Surface(bulk_atoms, indices=indices, layers=layers, vacuum=vacuum)
                 .make_surface()
                 .center_around_origin()
             )
@@ -1179,15 +1226,9 @@ class MaterialsAnalyzer:
                 self.log(f"Skipping surface {indices} due to failed relaxation.")
                 continue
 
-            # Check bulk energy availability
-            bulk_energy = self.get_bulk_reference_energy("the surface energy")
-            if bulk_energy is None:
-                self.log(f"Skipping surface {indices} because no bulk energy is found.")
-                continue
-
             # Calculate surface energy
             s_energy = self.calculate_surface_energy(
-                final_energy, bulk_energy, relaxed_surface_atoms, surface
+                final_energy, bulk_energy, relaxed_surface_atoms, surface, bulk_atoms
             )
             surface_name = f"Surface-{self.jid}_miller_{'_'.join(map(str, indices))}"
             self.job_info[surface_name] = s_energy  # Store in job_info for reference
@@ -1264,13 +1305,15 @@ class MaterialsAnalyzer:
         return relaxed_surf_atoms, final_energy
 
     def calculate_surface_energy(
-        self, final_energy, bulk_energy, relaxed_atoms, surface
+        self, final_energy, bulk_energy, relaxed_atoms, surface, bulk_atoms=None
     ):
         """
-        Calculate the surface energy based on the final energy of the relaxed surface and bulk energy.
+        Calculate the surface energy based on the final energy of the relaxed surface and
+        bulk energy, where `bulk_energy` is the energy of `bulk_atoms` (default: self.atoms).
         """
+        bulk_atoms = bulk_atoms if bulk_atoms is not None else self.atoms
         # Calculate the number of bulk units in the surface supercell
-        num_units = surface.num_atoms / self.atoms.num_atoms
+        num_units = surface.num_atoms / bulk_atoms.num_atoms
 
         # Calculate the surface area using the lattice vectors
         m = relaxed_atoms.lattice.matrix
@@ -1312,9 +1355,9 @@ class MaterialsAnalyzer:
         set_of_forces = []
         for scell in supercells:
             ase_atoms = AseAtoms(
-                symbols=scell.get_chemical_symbols(),
-                scaled_positions=scell.get_scaled_positions(),
-                cell=scell.get_cell(),
+                symbols=scell.symbols,
+                scaled_positions=scell.scaled_positions,
+                cell=scell.cell,
                 pbc=True,
             )
             ase_atoms.calc = self.calculator
@@ -1346,7 +1389,7 @@ class MaterialsAnalyzer:
             shutil.move(hdf5_file, os.path.join(self.output_dir, hdf5_file))
 
         # Process Phono3py results and save plots
-        self.process_phonon3_results()
+        self.process_phonon3_results(phonon.thermal_conductivity)
 
         # Save updated job info to JSON
         save_dict_to_json(
@@ -1358,70 +1401,42 @@ class MaterialsAnalyzer:
         )
         self.log(f"Phono3py analysis completed for {self.jid}")
 
-    def process_phonon3_results(self):
-        """Process Phono3py results and generate plots of thermal conductivity."""
-        file_pattern = os.path.join(self.output_dir, "kappa-*.hdf5")
-        file_list = glob.glob(file_pattern)
+    def process_phonon3_results(self, thermal_conductivity):
+        """Record and plot the lattice thermal conductivity kappa_xx every 100 K."""
+        # Phono3py's kappa is the total (summed over q-points and bands) in W/(m K),
+        # shape (sigmas, temperatures, 6) with components xx, yy, zz, yz, xz, xy.
+        kappa = np.asarray(thermal_conductivity.kappa)
+        if kappa.ndim == 3:
+            kappa = kappa[0]
+        all_temperatures = np.asarray(thermal_conductivity.temperatures)
+        selected = np.isin(all_temperatures, np.arange(100, 1001, 100))
+        temperatures = all_temperatures[selected]
+        kappa_xx_values = kappa[selected, 0]
 
-        temperatures = np.arange(10, 101, 10)
-        kappa_xx_values = []
+        for t, k in zip(temperatures, kappa_xx_values):
+            self.log(f"T = {t:.0f} K, kappa_xx = {k} W/(m K)")
 
-        if file_list:
-            hdf5_filename = file_list[0]
-            self.log(f"Processing file: {hdf5_filename}")
+        # Save results to job_info
+        self.job_info["temperatures"] = temperatures.tolist()
+        self.job_info["kappa_xx_values"] = kappa_xx_values.tolist()
 
-            for temperature_index in temperatures:
-                converted_kappa = self.convert_kappa_units(
-                    hdf5_filename, temperature_index
-                )
-                kappa_xx = converted_kappa[0]
-                kappa_xx_values.append(kappa_xx)
-                self.log(
-                    f"Temperature index {temperature_index}, converted kappa: {kappa_xx}"
-                )
-
-            # Save results to job_info
-            self.job_info["temperatures"] = temperatures.tolist()
-            self.job_info["kappa_xx_values"] = kappa_xx_values
-
-            # Plot temperature vs. converted kappa (xx element)
-            plt.figure(figsize=(8, 6))
-            plt.plot(
-                temperatures * 10,
-                kappa_xx_values,
-                marker="o",
-                linestyle="-",
-                color="b",
-            )
-            plt.xlabel("Temperature (K)")
-            plt.ylabel("Converted Kappa (xx element)")
-            plt.title("Temperature vs. Converted Kappa (xx element)")
-            plt.grid(True)
-            plt.savefig(
-                os.path.join(
-                    self.output_dir, "Temperature_vs_Converted_Kappa.png"
-                )
-            )
-            plt.close()
-        else:
-            self.log("No files matching the pattern were found.")
-
-    def convert_kappa_units(self, hdf5_filename, temperature_index):
-        """Convert thermal conductivity kappa from HDF5 file units."""
-        with h5py.File(hdf5_filename, "r") as f:
-            kappa_unit_conversion = f["kappa_unit_conversion"][()]
-            heat_capacity = f["heat_capacity"][:]
-            gv_by_gv = f["gv_by_gv"][:]
-            gamma = f["gamma"][:]
-
-            converted_kappa = (
-                kappa_unit_conversion
-                * heat_capacity[temperature_index, 2, 0]
-                * gv_by_gv[2, 0]
-                / (2 * gamma[temperature_index, 2, 0])
-            )
-
-            return converted_kappa
+        # Plot temperature vs. kappa (xx element)
+        plt.figure(figsize=(8, 6))
+        plt.plot(
+            temperatures,
+            kappa_xx_values,
+            marker="o",
+            linestyle="-",
+            color="b",
+        )
+        plt.xlabel("Temperature (K)")
+        plt.ylabel("Kappa xx (W/(m K))")
+        plt.title("Temperature vs. Kappa (xx element)")
+        plt.grid(True)
+        plt.savefig(
+            os.path.join(self.output_dir, "Temperature_vs_Converted_Kappa.png")
+        )
+        plt.close()
 
     def calculate_thermal_expansion(self, relaxed_atoms):
         from phonopy import Phonopy, PhonopyQHA
@@ -1444,12 +1459,10 @@ class MaterialsAnalyzer:
         )
 
         # Log Bulk modulus, equilibrium energy, and volume
+        # (fine_ev_curve has already stored the fitted values in job_info)
         log(
-            f"Bulk modulus: {kv} GPa, Equilibrium energy: {y[0]} eV, Volume: {vol[0]} Å³"
+            f"Bulk modulus: {kv} GPa, Equilibrium energy: {e0} eV, Volume: {v0} Å³"
         )
-        self.job_info["bulk_modulus"] = kv
-        self.job_info["equilibrium_energy"] = y[0]
-        self.job_info["equilibrium_volume"] = vol[0]
 
         # Step 2: Generate phonons for strained structures
         free_energies, heat_capacities, entropies, temperatures = (
@@ -1463,7 +1476,7 @@ class MaterialsAnalyzer:
         )
 
         # Step 3: Perform QHA-based thermal expansion analysis
-        alpha = self.perform_qha(
+        alpha_temperatures, alpha = self.perform_qha(
             volumes=vol,
             energies=y,
             free_energies=free_energies,
@@ -1472,8 +1485,14 @@ class MaterialsAnalyzer:
             temperatures=temperatures,
             output_dir=self.output_dir,
         )
+        self.job_info["thermal_expansion_temperatures"] = alpha_temperatures.tolist()
+        self.job_info["thermal_expansion"] = alpha.tolist()
 
-        self.log(f"Thermal expansion coefficient calculated: {alpha}")
+        if len(alpha):
+            self.log(
+                f"Thermal expansion coefficient at {alpha_temperatures[-1]:.0f} K: "
+                f"{alpha[-1]:.4e} 1/K"
+            )
         save_dict_to_json(
             self.job_info,
             os.path.join(
@@ -1554,6 +1573,10 @@ class MaterialsAnalyzer:
         distance=0.2,
         mesh=[20, 20, 20],
     ):
+        """
+        Return free energies, heat capacities and entropies with shape
+        (volumes, temperatures), and the temperatures they were computed at.
+        """
         from phonopy import Phonopy, PhonopyQHA
         from phonopy.file_IO import write_FORCE_CONSTANTS
         from phonopy.phonon.band_structure import BandStructure
@@ -1562,7 +1585,6 @@ class MaterialsAnalyzer:
         all_free_energies = []
         all_heat_capacities = []
         all_entropies = []
-        temperatures = np.arange(0, 300, 6)  # Define temperature range
 
         for structure in structures:
             # Convert structure to PhonopyAtoms
@@ -1579,7 +1601,7 @@ class MaterialsAnalyzer:
             phonon.generate_displacements(distance=distance)
 
             # Calculate forces for displaced structures
-            supercells = phonon.get_supercells_with_displacements()
+            supercells = phonon.supercells_with_displacements
             forces = []
             for scell in supercells:
                 ase_atoms = AseAtoms(
@@ -1597,6 +1619,7 @@ class MaterialsAnalyzer:
             phonon.run_mesh(mesh=mesh)
             phonon.run_thermal_properties(t_min=0, t_step=6, t_max=294)
             tprop_dict = phonon.get_thermal_properties_dict()
+            temperatures = tprop_dict["temperatures"]
 
             free_energies = tprop_dict["free_energy"]
             heat_capacities = tprop_dict["heat_capacity"]
@@ -1633,20 +1656,28 @@ class MaterialsAnalyzer:
         print(f"Number of free energy data points: {free_energies.shape}")
         print(f"Number of volume data points: {len(volumes)}")
 
-        # Ensure that volumes, free_energies, and temperatures are consistent
-        if len(volumes) != len(temperatures):
-            raise ValueError(
-                "The number of volumes must match the number of temperatures"
-            )
+        # The thermal properties come in as (volumes, temperatures), but
+        # PhonopyQHA expects (temperatures, volumes), so they are transposed below.
+        expected_shape = (len(volumes), len(temperatures))
+        for name, values in [
+            ("free_energies", free_energies),
+            ("heat_capacities", heat_capacities),
+            ("entropies", entropies),
+        ]:
+            if np.shape(values) != expected_shape:
+                raise ValueError(
+                    f"{name} has shape {np.shape(values)}; expected "
+                    f"{expected_shape} (volumes, temperatures)"
+                )
 
         # Initialize the QHA object
         try:
             qha = PhonopyQHA(
                 volumes=volumes,
                 electronic_energies=energies,
-                free_energy=free_energies,
-                cv=heat_capacities,
-                entropy=entropies,
+                free_energy=np.transpose(free_energies),
+                cv=np.transpose(heat_capacities),
+                entropy=np.transpose(entropies),
                 temperatures=temperatures,
                 eos="murnaghan",  # or another EOS if needed
                 verbose=True,
@@ -1666,27 +1697,28 @@ class MaterialsAnalyzer:
             output_dir, "helmholtz_volume.png"
         )
 
-        qha.get_thermal_expansion()
+        # Phonopy reports thermal expansion for the first len(alpha) temperatures only
+        alpha = np.asarray(qha.thermal_expansion)
+        alpha_temperatures = np.asarray(temperatures)[: len(alpha)]
 
-        # Save thermal expansion plot
-        qha.plot_thermal_expansion()
-        plt.savefig(thermal_expansion_plot)
+        # Save thermal expansion, volume-temperature and
+        # Helmholtz free energy vs. volume plots
+        for plot, filename in [
+            (qha.plot_thermal_expansion, thermal_expansion_plot),
+            (qha.plot_volume_temperature, volume_temperature_plot),
+            (qha.plot_helmholtz_volume, helmholtz_volume_plot),
+        ]:
+            plot()
+            plt.savefig(filename)
+            plt.close()
 
-        # Save volume-temperature plot
-        qha.plot_volume_temperature()
-        plt.savefig(volume_temperature_plot)
-
-        # Save Helmholtz free energy vs. volume plot
-        qha.plot_helmholtz_volume()
-        plt.savefig(helmholtz_volume_plot)
-
-        # Optionally save thermal expansion coefficient to a file
+        # Save thermal expansion coefficient to a file
         thermal_expansion_file = os.path.join(
             output_dir, "thermal_expansion.txt"
         )
-        alpha = qha.write_thermal_expansion(filename=thermal_expansion_file)
+        qha.write_thermal_expansion(filename=thermal_expansion_file)
 
-        return alpha
+        return alpha_temperatures, alpha
 
     def general_melter(self, relaxed_atoms):
         """Perform MD simulation to melt the structure, then quench it back to room temperature."""
@@ -2040,7 +2072,6 @@ class MaterialsAnalyzer:
         err_a = err_b = err_c = err_vol = err_form = err_kv = err_c11 = (
             err_c44
         ) = err_surf_en = err_vac_en = np.nan
-        form_en_entry = kv_entry = c11_entry = c44_entry = 0
 
         # Optionally calculate forces
         if "calculate_forces" in self.properties_to_calculate:
@@ -2051,50 +2082,46 @@ class MaterialsAnalyzer:
         # -----------------------------------------------
         if "calculate_ev_curve" in self.properties_to_calculate:
             _, _, _, _, bulk_modulus, _, _ = self.calculate_ev_curve(relaxed_atoms)
-            kv_entry = self.reference_data.get("bulk_modulus_kv", 0)
+            # Missing reference values ("na" in JARVIS) are stored as None
+            kv_entry = reference_value(self.reference_data.get("bulk_modulus_kv"))
             final_results["modulus"] = {
                 "kv": bulk_modulus,
                 "kv_entry": kv_entry,
             }
-            err_kv = (
-                mean_absolute_error([kv_entry], [bulk_modulus])
-                if bulk_modulus is not None
-                else np.nan
-            )
+            err_kv = absolute_error(kv_entry, bulk_modulus)
 
         # -----------------------------------------------
         # Formation energy
         # -----------------------------------------------
         if "calculate_formation_energy" in self.properties_to_calculate:
             formation_energy = self.calculate_formation_energy(relaxed_atoms)
-            form_en_entry = self.reference_data.get("formation_energy_peratom", 0)
+            form_en_entry = reference_value(
+                self.reference_data.get("formation_energy_peratom")
+            )
             final_results["form_en"] = {
                 "form_energy": formation_energy,
                 "form_energy_entry": form_en_entry,
             }
-            err_form = mean_absolute_error([form_en_entry], [formation_energy])
+            err_form = absolute_error(form_en_entry, formation_energy)
 
         # -----------------------------------------------
         # Elastic tensor
         # -----------------------------------------------
         if "calculate_elastic_tensor" in self.properties_to_calculate:
             elastic_tensor = self.calculate_elastic_tensor(relaxed_atoms)
-            c11_entry = self.reference_data.get("elastic_tensor", [[0]])[0][0]
-            c44_entry = self.reference_data.get(
-                "elastic_tensor", [[0, 0, 0, [0, 0, 0, 0]]]
-            )[3][3]
+            reference_tensor = self.reference_data.get("elastic_tensor")
+            c11_entry = elastic_reference(reference_tensor, 0, 0)
+            c44_entry = elastic_reference(reference_tensor, 3, 3)
+            c11 = elastic_tensor.get("C_11")
+            c44 = elastic_tensor.get("C_44")
             final_results["elastic_tensor"] = {
-                "c11": elastic_tensor.get("C_11", 0),
-                "c44": elastic_tensor.get("C_44", 0),
+                "c11": c11,
+                "c44": c44,
                 "c11_entry": c11_entry,
                 "c44_entry": c44_entry,
             }
-            err_c11 = mean_absolute_error(
-                [c11_entry], [elastic_tensor.get("C_11", np.nan)]
-            )
-            err_c44 = mean_absolute_error(
-                [c44_entry], [elastic_tensor.get("C_44", np.nan)]
-            )
+            err_c11 = absolute_error(c11_entry, c11)
+            err_c44 = absolute_error(c44_entry, c44)
 
         # -----------------------------------------------
         # Phonon analysis
@@ -2114,13 +2141,15 @@ class MaterialsAnalyzer:
                 from sklearn.metrics import mean_absolute_error
 
                 # 1) Actually run the single-pass defect analysis
-                self.analyze_defects()
+                self.analyze_defects(relaxed_atoms)
 
                 # 2) Retrieve the defect data from job_info
                 all_vac_data = self.job_info.get("all_vacancies", [])
 
                 # 3) Get reference data; ensure it's a list of dict
-                vacancy_entries = get_vacancy_energy_entry(self.jid, collect_data())
+                vacancy_entries = get_vacancy_energy_entry(
+                    self.jid, collect_data(dft_3d=self.dataset)
+                )
                 if isinstance(vacancy_entries, dict):
                         # Wrap single dict in a list
                         vacancy_entries = [vacancy_entries]
@@ -2131,7 +2160,7 @@ class MaterialsAnalyzer:
                 # 4) Attempt to match each vacancy in all_vac_data to the reference
                 matched_vac = []
                 for vac_info in all_vac_data:
-                        defect_name = vac_info["name"]   # e.g. "JVASP-107_Si"
+                        defect_name = vac_info["name"]   # e.g. "JVASP-107_Si_a"
                         calc_vac_en = vac_info["vac_en"]
 
                         # Find an entry dict with "symbol" == defect_name
@@ -2172,11 +2201,20 @@ class MaterialsAnalyzer:
                 import numpy as np
                 from sklearn.metrics import mean_absolute_error
 
-                self.analyze_surfaces()
+                self.analyze_surfaces(relaxed_atoms)
 
                 # Retrieve the surfaces that were actually relaxed
                 all_surfs = self.job_info.get("all_surfaces", [])
-                surface_entries = get_surface_energy_entry(self.jid, collect_data())
+                # surfacedb mixes PBE and r2SCAN slabs; compare against one functional
+                surface_functional = self.surface_settings.get(
+                    "reference_functional", "PBE"
+                )
+                surface_entries = get_surface_energy_entry(
+                    self.jid,
+                    collect_data(
+                        dft_3d=self.dataset, surface_functional=surface_functional
+                    ),
+                )
 
                 # Ensure surface_entries is a list of dictionaries
                 if isinstance(surface_entries, dict):
@@ -2203,6 +2241,7 @@ class MaterialsAnalyzer:
                                     "name": sname,
                                     "surf_en": calc_en,
                                     "surf_en_entry": matching_entry["surf_en_entry"],
+                                    "reference_name": matching_entry.get("reference_name"),
                                 })
                         else:
                                 self.log(f"No valid matching entry found for {sname}")
@@ -2283,15 +2322,16 @@ class MaterialsAnalyzer:
         csv_name = os.path.join(self.output_dir, f"{unique_dir}_error_dat.csv")
         df.to_csv(csv_name, index=False)
 
-        # Plot error scorecard
-        self.plot_error_scorecard(df)
-
-        # Final results JSON
+        # Final results JSON (written before plotting so a plotting failure
+        # cannot lose the results)
         output_file = os.path.join(
             self.output_dir,
             f"{self.jid}_{self.calculator_type}_results.json"
         )
         save_dict_to_json(final_results, output_file)
+
+        # Plot error scorecard
+        self.plot_error_scorecard(df)
 
         # Log total time
         total_time = error_dat["time"]

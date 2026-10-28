@@ -139,11 +139,15 @@ python run_chipsff.py --input_file input.json
     "relaxation_settings": {"fmax": 0.05, "steps": 200, "constant_volume": false}
   },
   "phonon_settings":  {"dim": [2, 2, 2], "distance": 0.2},
-  "surface_settings": {"indices_list": [[0,1,0],[0,0,1]], "layers": 4, "vacuum": 18},
+  "surface_settings": {"indices_list": [[1,1,0],[0,0,1]], "layers": 4, "vacuum": 18, "reference_functional": "PBE"},
   "defect_settings":  {"generate_settings": {"on_conventional_cell": true, "enforce_c_size": 8, "extend": 1}},
   "md_settings":      {"dt": 1, "temp0": 3500, "nsteps0": 1000, "temp1": 300, "nsteps1": 2000}
 }
 ```
+
+`surface_settings.reference_functional` picks the DFT functional of the JARVIS
+surface energies used as references: `"PBE"` (default) or `"R2SCAN"`. The
+surface database contains both, so only one is used for comparisons.
 
 Interface run: set `"film_id"`, `"substrate_id"`, `"film_index"`,
 `"substrate_index"` and `"properties_to_calculate": ["analyze_interfaces"]`.
