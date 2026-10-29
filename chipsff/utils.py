@@ -1,6 +1,8 @@
 #!/usr/bin/env python
 import json
 import math
+import numpy as np
+from jarvis.core.atoms import Atoms
 from jarvis.db.figshare import data
 
 # Load each jarvis dataset once per process. The zips are large (dft_3d ~48 MB)
@@ -183,6 +185,24 @@ def save_dict_to_json(data_dict, filename):
 def load_dict_from_json(filename):
     with open(filename, "r") as f:
         return json.load(f)
+
+
+def strain_atoms(atoms, strain):
+    """
+    Scale the cell of JARVIS `atoms` by (1 + strain) along each axis,
+    moving the atoms with it.
+
+    jarvis Atoms.strain_atoms keeps Cartesian coordinates fixed when the
+    structure has them (as ase_to_atoms gives), which distorts every cell
+    with more than one atom.
+    """
+    lattice_mat = np.dot(np.array(atoms.lattice_mat), (1 + strain) * np.eye(3))
+    return Atoms(
+        lattice_mat=lattice_mat,
+        elements=atoms.elements,
+        coords=atoms.frac_coords,
+        cartesian=False,
+    )
 
 
 def reference_value(value):

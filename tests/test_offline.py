@@ -102,6 +102,18 @@ def test_vacancy_energy_does_not_depend_on_input_lattice(make_analyzer):
     assert names == ["JVASP-A3.59_Cu_a", "JVASP-A3.7_Cu_a"]
 
 
+def test_bulk_modulus_does_not_depend_on_cell_choice(make_analyzer):
+    # jarvis Atoms.strain_atoms keeps Cartesian positions fixed, so the
+    # strained conventional cell was distorted and its bulk modulus too high
+    moduli = []
+    for cubic in (False, True):
+        analyzer = make_analyzer(cubic=cubic)
+        relaxed = analyzer.relax_structure()
+        analyzer.calculate_ev_curve(relaxed)
+        moduli.append(analyzer.job_info["bulk_modulus"])
+    assert moduli[1] == pytest.approx(moduli[0], rel=0.01)
+
+
 def test_qha_matches_free_energy_minimum(tmp_path):
     # With E(V) = B (V - V0)^2 / (2 V0) and F(V, T) = -c T (V - V0), the
     # Gibbs energy minimum moves as V(T) = V0 + c' T V0 / B, so the thermal
