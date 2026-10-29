@@ -118,6 +118,27 @@ def get_vacancy_energy_entry(jid, aggregated_data):
     return f"JID {jid} not found in the data."
 
 
+def match_vacancy_reference(defect_name, computed_names, vacancy_entries):
+    """
+    Return the reference entry for a computed vacancy named
+    "<jid>_<element>_<wyckoff letter>", or None.
+
+    An exact id match is used when available. Otherwise, if the element has
+    a single site in both `computed_names` and `vacancy_entries`, those are
+    matched: the same site can get a different Wyckoff letter depending on
+    the cell's origin (e.g. 2c or 2d in hcp metals).
+    """
+    for entry in vacancy_entries:
+        if entry["symbol"] == defect_name:
+            return entry
+    element = defect_name.split("_")[-2]
+    refs = [e for e in vacancy_entries if e["symbol"].split("_")[-2] == element]
+    computed = [n for n in computed_names if n.split("_")[-2] == element]
+    if len(refs) == 1 and len(computed) == 1:
+        return refs[0]
+    return None
+
+
 def get_surface_energy_entry(jid, aggregated_data):
     """
     Retrieve the surface energy entry (surf_en_entry) for a given jid.

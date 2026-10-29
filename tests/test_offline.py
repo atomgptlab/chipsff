@@ -21,6 +21,7 @@ from chipsff.utils import (
     elastic_reference,
     get_surface_energy_entry,
     get_vacancy_energy_entry,
+    match_vacancy_reference,
     reference_value,
 )
 
@@ -202,6 +203,20 @@ def test_collect_data_separates_functionals_and_wyckoff_sites():
     assert r2scan["surf_en_entry"] == 2.0
 
 
+def test_match_vacancy_reference():
+    refs = [
+        {"symbol": "JVASP-2_Ru_c", "vac_en_entry": 2.0},
+        {"symbol": "JVASP-3_Sm_a", "vac_en_entry": 1.7},
+        {"symbol": "JVASP-3_Sm_c", "vac_en_entry": 1.8},
+    ]
+    # One Ru site in both sets: matched although the letters differ
+    assert match_vacancy_reference("JVASP-2_Ru_d", ["JVASP-2_Ru_d"], refs[:1]) == refs[0]
+    # Several Sm sites: only exact letters are matched
+    computed = ["JVASP-3_Sm_a", "JVASP-3_Sm_d"]
+    assert match_vacancy_reference("JVASP-3_Sm_a", computed, refs[1:]) == refs[1]
+    assert match_vacancy_reference("JVASP-3_Sm_d", computed, refs[1:]) is None
+
+
 def test_missing_reference_values_give_nan_errors():
     assert reference_value("na") is None
     assert reference_value(None) is None
@@ -232,3 +247,27 @@ def test_batch_skips_failed_materials(tmp_path, monkeypatch):
     )
     assert failures == [("BAD", "calc")]
     assert (tmp_path / "composite_error_data.csv").exists()
+
+
+def test_main_runs_remaining_jobs_then_exits_with_error(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    ran = []
+
+    class FakeAnalyzer:
+        def __init__(self, jid, calculator_type, **kwargs):
+            self.jid = jid
+
+        def run_all(self):
+            ran.append(self.jid)
+            if self.jid == "BAD":
+                raise RuntimeError("analysis failed")
+            return {"err_a": 0.1}
+
+    monkeypatch.setattr(run_chipsff, "MaterialsAnalyzer", FakeAnalyzer)
+    (tmp_path / "input.json").write_text(
+        '{"jid_list": ["BAD", "GOOD"], "calculator_type": "calc"}'
+    )
+    monkeypatch.setattr("sys.argv", ["run_chipsff", "--input_file", "input.json"])
+    with pytest.raises(SystemExit, match="1 analyses failed: BAD"):
+        run_chipsff.main()
+    assert ran == ["BAD", "GOOD"]

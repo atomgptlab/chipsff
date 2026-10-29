@@ -2136,7 +2136,11 @@ class MaterialsAnalyzer:
         # Vacancy energy analysis
         # -----------------------------------------------
         if "analyze_defects" in self.properties_to_calculate:
-                from chipsff.utils import collect_data, get_vacancy_energy_entry
+                from chipsff.utils import (
+                    collect_data,
+                    get_vacancy_energy_entry,
+                    match_vacancy_reference,
+                )
                 import numpy as np
                 from sklearn.metrics import mean_absolute_error
 
@@ -2148,7 +2152,7 @@ class MaterialsAnalyzer:
 
                 # 3) Get reference data; ensure it's a list of dict
                 vacancy_entries = get_vacancy_energy_entry(
-                    self.jid, collect_data(dft_3d=self.dataset)
+                    self.jid, collect_data(dft_3d=[{"jid": self.jid}])
                 )
                 if isinstance(vacancy_entries, dict):
                         # Wrap single dict in a list
@@ -2156,27 +2160,25 @@ class MaterialsAnalyzer:
                 if not isinstance(vacancy_entries, list):
                         self.log("No valid or unexpected vacancy reference data type.")
                         vacancy_entries = []
+                vacancy_entries = [e for e in vacancy_entries if isinstance(e, dict)]
 
                 # 4) Attempt to match each vacancy in all_vac_data to the reference
+                computed_names = [v["name"] for v in all_vac_data]
                 matched_vac = []
                 for vac_info in all_vac_data:
                         defect_name = vac_info["name"]   # e.g. "JVASP-107_Si_a"
                         calc_vac_en = vac_info["vac_en"]
 
-                        # Find an entry dict with "symbol" == defect_name
-                        matching_entry = next(
-                                (
-                                    entry for entry in vacancy_entries
-                                    if isinstance(entry, dict) and entry.get("symbol") == defect_name
-                                ),
-                                None
+                        matching_entry = match_vacancy_reference(
+                            defect_name, computed_names, vacancy_entries
                         )
 
                         if matching_entry and matching_entry.get("vac_en_entry", 0) != 0:
                                 matched_vac.append({
                                     "name": defect_name,
                                     "vac_en": calc_vac_en,
-                                    "vac_en_entry": matching_entry["vac_en_entry"]
+                                    "vac_en_entry": matching_entry["vac_en_entry"],
+                                    "reference_name": matching_entry["symbol"],
                                 })
                         else:
                                 self.log(f"No valid matching entry found for {defect_name}")
@@ -2212,7 +2214,8 @@ class MaterialsAnalyzer:
                 surface_entries = get_surface_energy_entry(
                     self.jid,
                     collect_data(
-                        dft_3d=self.dataset, surface_functional=surface_functional
+                        dft_3d=[{"jid": self.jid}],
+                        surface_functional=surface_functional,
                     ),
                 )
 
