@@ -8,9 +8,11 @@ import os
 import h5py
 import numpy as np
 import pytest
+from ase import Atoms, units
 from ase.build import bulk
 from ase.calculators.emt import EMT
 from ase.constraints import ExpCellFilter
+from ase.optimize import FIRE
 from jarvis.core.atoms import ase_to_atoms
 
 import chipsff.general_material_analyzer as gma
@@ -34,8 +36,9 @@ def make_analyzer(tmp_path, monkeypatch):
         gma, "setup_calculator", lambda calculator_type, settings: EMT()
     )
 
-    def make(a=3.59, jid="JVASP-TEST", cubic=False, **kwargs):
-        atoms = ase_to_atoms(bulk("Cu", "fcc", a=a, cubic=cubic))
+    def make(a=3.59, jid="JVASP-TEST", cubic=False, atoms=None, **kwargs):
+        if atoms is None:
+            atoms = ase_to_atoms(bulk("Cu", "fcc", a=a, cubic=cubic))
         return gma.MaterialsAnalyzer(
             jid=jid,
             calculator_type="emt",
@@ -112,6 +115,37 @@ def test_bulk_modulus_does_not_depend_on_cell_choice(make_analyzer):
         analyzer.calculate_ev_curve(relaxed)
         moduli.append(analyzer.job_info["bulk_modulus"])
     assert moduli[1] == pytest.approx(moduli[0], rel=0.01)
+
+
+def test_tetragonal_shear_constants_match_stress_derivatives(make_analyzer):
+    # elastic's tetragonal fit paired each shear stress with the wrong strain
+    # and returned C44 = 0 for every tetragonal crystal. L1_0 CuAu (P4/mmm):
+    atoms = Atoms(
+        "CuAu",
+        scaled_positions=[[0, 0, 0], [0.5, 0.5, 0.5]],
+        cell=[2.8, 2.8, 3.7],
+        pbc=True,
+    )
+    atoms.calc = EMT()
+    FIRE(ExpCellFilter(atoms), logfile=None).run(fmax=1e-4, steps=1000)
+    analyzer = make_analyzer(atoms=ase_to_atoms(atoms))
+    cij = analyzer.calculate_elastic_tensor(ase_to_atoms(atoms))
+    assert set(cij) == {"C_11", "C_33", "C_12", "C_13", "C_44", "C_66"}
+
+    def shear_modulus(k, i, j, h=0.005):
+        """d(sigma_k)/d(gamma_ij) by central differences, in GPa."""
+        stresses = []
+        for gamma in (h, -h):
+            strain = np.eye(3)
+            strain[i, j] = strain[j, i] = gamma / 2
+            strained = atoms.copy()
+            strained.set_cell(atoms.cell @ strain, scale_atoms=True)
+            strained.calc = EMT()
+            stresses.append(strained.get_stress()[k])
+        return (stresses[0] - stresses[1]) / (2 * h) / units.GPa
+
+    assert cij["C_44"] == pytest.approx(shear_modulus(3, 1, 2), rel=0.05)
+    assert cij["C_66"] == pytest.approx(shear_modulus(5, 0, 1), rel=0.05)
 
 
 def test_qha_matches_free_energy_minimum(tmp_path):

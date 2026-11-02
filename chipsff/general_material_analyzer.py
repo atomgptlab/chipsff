@@ -85,6 +85,27 @@ class _Tee:
                 pass
 
 
+def _tetragonal_equations(u):
+    """elastic's tetragonal() stress-strain equations with the shear rows fixed.
+
+    elastic (5.2.5.3 and earlier) pairs sigma_yz with u_xz and sigma_xz with
+    u_yz. It applies only the yz shear to tetragonal cells, so with its
+    equations the fit always returns C44 = 0. Constants are in elastic's
+    order: C11, C33, C12, C13, C44, C66.
+    """
+    uxx, uyy, uzz, uyz, uxz, uxy = u[0], u[1], u[2], u[3], u[4], u[5]
+    return np.array(
+        [
+            [uxx, 0, uyy, uzz, 0, 0],
+            [uyy, 0, uxx, uzz, 0, 0],
+            [0, uzz, 0, uxx + uyy, 0, 0],
+            [0, 0, 0, 0, 2 * uyz, 0],
+            [0, 0, 0, 0, 2 * uxz, 0],
+            [0, 0, 0, 0, 0, 2 * uxy],
+        ]
+    )
+
+
 class MaterialsAnalyzer:
     def __init__(
         self,
@@ -641,7 +662,9 @@ class MaterialsAnalyzer:
         # Get elementary deformations for elastic tensor calculation
         systems = elastic.get_elementary_deformations(ase_atoms)
 
-        # Calculate the elastic tensor and convert to GPa
+        # Calculate the elastic tensor and convert to GPa. get_elastic_tensor
+        # looks up tetragonal() when it runs, so this replaces the broken one.
+        elastic.elastic.tetragonal = _tetragonal_equations
         cij_order = elastic.elastic.get_cij_order(ase_atoms)
         Cij, Bij = elastic.get_elastic_tensor(ase_atoms, systems)
         elastic_tensor = {
