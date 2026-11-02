@@ -2135,7 +2135,9 @@ class MaterialsAnalyzer:
             elastic_tensor = self.calculate_elastic_tensor(relaxed_atoms)
             reference_tensor = self.reference_data.get("elastic_tensor")
             c11_entry = elastic_reference(reference_tensor, 0, 0)
-            c44_entry = elastic_reference(reference_tensor, 3, 3)
+            # JARVIS stores elastic tensors in VASP order (xx, yy, zz, xy,
+            # yz, zx), so C44 is element (4, 4); element (3, 3) is C66
+            c44_entry = elastic_reference(reference_tensor, 4, 4)
             c11 = elastic_tensor.get("C_11")
             c44 = elastic_tensor.get("C_44")
             final_results["elastic_tensor"] = {
