@@ -87,7 +87,8 @@ def test_get_vacancy_energy_entry():
 
 
 def test_get_surface_energy_entry():
-    aggregated_data = collect_data()
+    # JARVIS has only r2SCAN surface references for Si
+    aggregated_data = collect_data(surface_functional="R2SCAN")
     jid = "JVASP-1002"  # Use a JID known to have surface data
     surface_entries = get_surface_energy_entry(jid, aggregated_data)
     assert isinstance(surface_entries, list)
