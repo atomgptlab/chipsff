@@ -3,6 +3,7 @@ Fast tests that need no network access or machine-learning force fields.
 
 Structures are built locally and ASE's EMT potential stands in for the MLFF.
 """
+import json
 import os
 
 import h5py
@@ -115,6 +116,28 @@ def test_bulk_modulus_does_not_depend_on_cell_choice(make_analyzer):
         analyzer.calculate_ev_curve(relaxed)
         moduli.append(analyzer.job_info["bulk_modulus"])
     assert moduli[1] == pytest.approx(moduli[0], rel=0.01)
+
+
+class Float32EMT(EMT):
+    """EMT returning its energy as np.float32, as some force fields do."""
+
+    def calculate(self, *args, **kwargs):
+        super().calculate(*args, **kwargs)
+        for key in ("energy", "free_energy"):
+            self.results[key] = np.float32(self.results[key])
+
+
+def test_float32_energies_can_be_saved(make_analyzer, monkeypatch):
+    # json.dump refuses np.float32, so saving job_info stopped the run
+    monkeypatch.setattr(
+        gma, "setup_calculator", lambda calculator_type, settings: Float32EMT()
+    )
+    analyzer = make_analyzer(cubic=True)
+    relaxed = analyzer.relax_structure()
+    analyzer.calculate_ev_curve(relaxed)
+    assert isinstance(analyzer.job_info["final_energy_structure"], float)
+    with open(analyzer.get_job_info_filename()) as f:
+        assert json.load(f)["bulk_modulus"] > 0
 
 
 def test_tetragonal_shear_constants_match_stress_derivatives(make_analyzer):

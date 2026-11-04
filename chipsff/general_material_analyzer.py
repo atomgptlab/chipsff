@@ -319,7 +319,7 @@ class MaterialsAnalyzer:
         # Read the energy from the atoms rather than parsing the optimizer log.
         # Cell filters wrap the atoms being relaxed in `.atoms`.
         atoms = getattr(ase_atoms, "atoms", ase_atoms)
-        final_energy = atoms.get_potential_energy()
+        final_energy = float(atoms.get_potential_energy())
 
         return final_energy, dyn.nsteps
 
@@ -422,7 +422,7 @@ class MaterialsAnalyzer:
         if bulk_atoms is not None:
             ase_atoms = bulk_atoms.ase_converter()
             ase_atoms.calc = self.calculator
-            e0 = ase_atoms.get_potential_energy()
+            e0 = float(ase_atoms.get_potential_energy())
             self.log(
                 f"No E-V fit or relaxed energy; using the single-point bulk "
                 f"energy {e0} eV for {purpose or 'the reference energy'}."
@@ -479,7 +479,7 @@ class MaterialsAnalyzer:
             ase_atoms.calc = self.calculator
 
             # Perform energy calculation
-            energy = ase_atoms.get_potential_energy() / len(ase_atoms)
+            energy = float(ase_atoms.get_potential_energy()) / len(ase_atoms)
             self.log(
                 f"Calculated chemical potential for {element}: {energy} eV/atom"
             )
@@ -572,7 +572,7 @@ class MaterialsAnalyzer:
             strained_structures.append(strained_atoms)
             ase_atoms = strained_atoms.ase_converter()
             ase_atoms.calc = self.calculator
-            energy = ase_atoms.get_potential_energy()
+            energy = float(ase_atoms.get_potential_energy())
 
             y.append(energy)
             vol.append(strained_atoms.volume)
@@ -1544,7 +1544,7 @@ class MaterialsAnalyzer:
             ase_atoms.calc = self.calculator  # Assign the calculator
 
             # Get potential energy and volume
-            energy = ase_atoms.get_potential_energy()
+            energy = float(ase_atoms.get_potential_energy())
             y.append(energy)
             vol.append(strained_atoms.volume)
 
