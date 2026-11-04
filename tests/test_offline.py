@@ -252,6 +252,17 @@ def test_thermal_expansion_keeps_fitted_equilibrium_energy(make_analyzer):
     assert np.all(alpha[temperatures > 100] > 0)
 
 
+def test_thermal_expansion_does_not_depend_on_cell_choice(make_analyzer):
+    # phonopy 4 defaults to free energies per primitive cell, but E(V) is per
+    # input cell, which made the expansion of the conventional cell far too low
+    alpha = []
+    for cubic in (False, True):
+        analyzer = make_analyzer(cubic=cubic)
+        analyzer.calculate_thermal_expansion(analyzer.relax_structure())
+        alpha.append(analyzer.job_info["thermal_expansion"][-1])
+    assert alpha[1] == pytest.approx(alpha[0], rel=0.1)
+
+
 def test_kappa_values_are_phono3py_totals(make_analyzer):
     pytest.importorskip("phono3py")
     # A 2x2x2 supercell of the 1-atom primitive cell is too small to give

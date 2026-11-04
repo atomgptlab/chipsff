@@ -1618,9 +1618,13 @@ class MaterialsAnalyzer:
                 cell=structure.lattice.matrix,
             )
 
-            # Initialize Phonopy object
+            # Initialize Phonopy object. The QHA adds these free energies to
+            # E(V) of the input cell, so they must be per input cell too;
+            # phonopy 4 would otherwise default to the primitive cell.
             phonon = Phonopy(
-                phonopy_atoms, [[dim[0], 0, 0], [0, dim[1], 0], [0, 0, dim[2]]]
+                phonopy_atoms,
+                [[dim[0], 0, 0], [0, dim[1], 0], [0, 0, dim[2]]],
+                primitive_matrix="P",
             )
             phonon.generate_displacements(distance=distance)
 
