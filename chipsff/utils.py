@@ -141,6 +141,40 @@ def match_vacancy_reference(defect_name, computed_names, vacancy_entries):
     return None
 
 
+def benchmark_vacancies(vacancies):
+    """
+    Return (benchmark id, vacancy) pairs for leaderboard files.
+
+    The CHIPS-FF benchmark names vacancies "<jid>_<element>" and uses the
+    first vacancydb entry for that element as the reference. So the Wyckoff
+    letter is dropped, and an element with several computed sites keeps only
+    the site compared with that entry.
+    """
+    by_id = {}
+    for vacancy in vacancies:
+        vacancy_id = "_".join(vacancy["name"].split("_")[:2])
+        by_id.setdefault(vacancy_id, []).append(vacancy)
+
+    first_reference = {}
+    if any(len(sites) > 1 for sites in by_id.values()):
+        for entry in cached_data("vacancydb"):
+            entry_id = "_".join(entry["id"].split("_")[:2])
+            first_reference.setdefault(entry_id, entry["ef"])
+
+    selected = []
+    for vacancy_id, sites in by_id.items():
+        if len(sites) > 1:
+            sites = [
+                site
+                for site in sites
+                if vacancy_id in first_reference
+                and abs(site["vac_en_entry"] - first_reference[vacancy_id])
+                < 1e-6
+            ]
+        selected.extend((vacancy_id, site) for site in sites[:1])
+    return selected
+
+
 def get_surface_energy_entry(jid, aggregated_data):
     """
     Retrieve the surface energy entry (surf_en_entry) for a given jid.

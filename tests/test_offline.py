@@ -3,8 +3,11 @@ Fast tests that need no network access or machine-learning force fields.
 
 Structures are built locally and ASE's EMT potential stands in for the MLFF.
 """
+import csv
+import io
 import json
 import os
+import zipfile
 
 import h5py
 import numpy as np
@@ -20,6 +23,7 @@ import chipsff.general_material_analyzer as gma
 import chipsff.run_chipsff as run_chipsff
 from chipsff.utils import (
     absolute_error,
+    benchmark_vacancies,
     collect_data,
     elastic_reference,
     get_surface_energy_entry,
@@ -284,6 +288,47 @@ def test_match_vacancy_reference():
     computed = ["JVASP-3_Sm_a", "JVASP-3_Sm_d"]
     assert match_vacancy_reference("JVASP-3_Sm_a", computed, refs[1:]) == refs[1]
     assert match_vacancy_reference("JVASP-3_Sm_d", computed, refs[1:]) is None
+
+
+def fake_vacancydb(name):
+    assert name == "vacancydb"
+    return [
+        {"jid": "JVASP-1029", "id": "JVASP-1029_Ti_a", "ef": 2.9},
+        {"jid": "JVASP-1029", "id": "JVASP-1029_Ti_d", "ef": 1.8},
+    ]
+
+
+VACANCIES = [
+    {"name": "JVASP-963_Pd_b", "vac_en": 1.0, "vac_en_entry": 1.5},
+    {"name": "JVASP-1029_Ti_d", "vac_en": 1.1, "vac_en_entry": 1.8},
+    {"name": "JVASP-1029_Ti_a", "vac_en": 2.2, "vac_en_entry": 2.9},
+]
+
+
+def test_benchmark_vacancies_use_benchmark_ids(monkeypatch):
+    monkeypatch.setattr("chipsff.utils.cached_data", fake_vacancydb)
+    selected = {
+        vacancy_id: vacancy["vac_en"]
+        for vacancy_id, vacancy in benchmark_vacancies(VACANCIES)
+    }
+    # Ti has two sites; the benchmark's reference is the first vacancydb entry
+    assert selected == {"JVASP-963_Pd": 1.0, "JVASP-1029_Ti": 2.2}
+
+
+def test_leaderboard_files_use_benchmark_vacancy_ids(tmp_path, monkeypatch):
+    error_metrics = pytest.importorskip("chipsff.error_metrics")
+    monkeypatch.setattr("chipsff.utils.cached_data", fake_vacancydb)
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "JVASP-1029_emt").mkdir()
+    with open("JVASP-1029_emt/JVASP-1029_emt_results.json", "w") as f:
+        json.dump({"vacancy_energy": VACANCIES[1:]}, f)
+    error_metrics.write_leaderboard_files(".", "lb")
+    name = next(n for n in os.listdir("lb") if "vac_en-emt" in n)
+    with zipfile.ZipFile(os.path.join("lb", name)) as archive:
+        text = archive.read(archive.namelist()[0]).decode()
+    rows = list(csv.DictReader(io.StringIO(text)))
+    assert [row["id"] for row in rows] == ["JVASP-1029_Ti"]
+    assert float(rows[0]["target"]) == 2.9
 
 
 def test_missing_reference_values_give_nan_errors():
