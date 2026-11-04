@@ -13,9 +13,10 @@ import h5py
 import numpy as np
 import pytest
 from ase import Atoms, units
-from ase.build import bulk
+from ase.build import bulk, fcc111
 from ase.calculators.emt import EMT
 from ase.constraints import ExpCellFilter
+from ase.eos import EquationOfState
 from ase.optimize import FIRE
 from jarvis.core.atoms import ase_to_atoms
 
@@ -30,6 +31,7 @@ from chipsff.utils import (
     get_vacancy_energy_entry,
     match_vacancy_reference,
     reference_value,
+    strain_atoms,
 )
 
 
@@ -53,6 +55,20 @@ def make_analyzer(tmp_path, monkeypatch):
         )
 
     return make
+
+
+@pytest.fixture
+def no_image_export(monkeypatch):
+    """Skip run_all's scorecard image, which needs kaleido."""
+    go = pytest.importorskip("plotly.graph_objects")
+    monkeypatch.setattr(go.Figure, "write_image", lambda *a, **k: None)
+
+
+def read_results(analyzer):
+    """Return the results file written by run_all."""
+    filename = f"{analyzer.jid}_emt_results.json"
+    with open(os.path.join(analyzer.output_dir, filename)) as f:
+        return json.load(f)
 
 
 def set_cu_chemical_potential(analyzer, atoms):
@@ -131,6 +147,49 @@ def test_fine_bulk_modulus_does_not_depend_on_cell_choice(make_analyzer):
     assert moduli[1] == pytest.approx(moduli[0], rel=0.01)
 
 
+def test_strain_atoms_moves_the_atoms_with_the_cell():
+    atoms = ase_to_atoms(bulk("Si", "diamond", a=5.43, cubic=True))
+    strained = strain_atoms(atoms, 0.02)
+    assert np.allclose(strained.lattice_mat, 1.02 * np.array(atoms.lattice_mat))
+    assert np.allclose(strained.frac_coords, atoms.frac_coords)
+    assert strained.elements == atoms.elements
+
+
+def test_bulk_modulus_matches_a_fit_made_with_ase_alone(make_analyzer):
+    analyzer = make_analyzer(cubic=True)
+    relaxed = analyzer.relax_structure()
+    analyzer.calculate_ev_curve(relaxed)
+
+    atoms = relaxed.ase_converter()
+    volumes, energies = [], []
+    for scale in np.arange(0.94, 1.055, 0.01):
+        strained = atoms.copy()
+        strained.set_cell(atoms.cell * scale, scale_atoms=True)
+        strained.calc = EMT()
+        volumes.append(strained.get_volume())
+        energies.append(strained.get_potential_energy())
+    _, _, modulus = EquationOfState(volumes, energies, eos="murnaghan").fit()
+    assert analyzer.job_info["bulk_modulus"] == pytest.approx(
+        modulus / units.GPa, rel=0.01
+    )
+
+
+def test_bulk_reference_energy_prefers_fit_then_relaxed_then_single_point(
+    make_analyzer,
+):
+    analyzer = make_analyzer()
+    assert analyzer.get_bulk_reference_energy() is None
+    atoms = analyzer.atoms.ase_converter()
+    atoms.calc = EMT()
+    assert analyzer.get_bulk_reference_energy(
+        bulk_atoms=analyzer.atoms
+    ) == pytest.approx(atoms.get_potential_energy())
+    analyzer.job_info["final_energy_structure"] = -1.0
+    assert analyzer.get_bulk_reference_energy(bulk_atoms=analyzer.atoms) == -1.0
+    analyzer.job_info["equilibrium_energy"] = -2.0
+    assert analyzer.get_bulk_reference_energy(bulk_atoms=analyzer.atoms) == -2.0
+
+
 class Float32EMT(EMT):
     """EMT returning its energy as np.float32, as some force fields do."""
 
@@ -146,17 +205,22 @@ def test_float32_energies_can_be_saved(make_analyzer, monkeypatch):
         gma, "setup_calculator", lambda calculator_type, settings: Float32EMT()
     )
     analyzer = make_analyzer(cubic=True)
+    single_point = analyzer.get_bulk_reference_energy(bulk_atoms=analyzer.atoms)
+    assert type(single_point) is float
+    chemical_potential = analyzer.calculate_element_chemical_potential(
+        "Cu", analyzer.jid
+    )
+    assert type(chemical_potential) is float
     relaxed = analyzer.relax_structure()
-    analyzer.calculate_ev_curve(relaxed)
-    assert isinstance(analyzer.job_info["final_energy_structure"], float)
+    assert type(analyzer.job_info["final_energy_structure"]) is float
+    assert analyzer.fine_ev_curve(relaxed)[1].dtype == np.float64
+    assert analyzer.calculate_ev_curve(relaxed)[1].dtype == np.float64
     with open(analyzer.get_job_info_filename()) as f:
         assert json.load(f)["bulk_modulus"] > 0
 
 
-def test_c44_reference_is_element_4_4(make_analyzer, monkeypatch):
+def test_c44_reference_is_element_4_4(make_analyzer, no_image_export):
     # JARVIS tensors are in VASP order (xx, yy, zz, xy, yz, zx): (3, 3) is C66
-    px = pytest.importorskip("plotly.graph_objects")
-    monkeypatch.setattr(px.Figure, "write_image", lambda *a, **k: None)
     analyzer = make_analyzer(
         cubic=True,
         properties_to_calculate=[
@@ -166,14 +230,184 @@ def test_c44_reference_is_element_4_4(make_analyzer, monkeypatch):
     )
     tensor = np.diag([170.0, 170.0, 170.0, 66.0, 44.0, 44.0]).tolist()
     analyzer.reference_data["elastic_tensor"] = tensor
-    analyzer.run_all()
-    results_file = os.path.join(
-        analyzer.output_dir, f"{analyzer.jid}_emt_results.json"
-    )
-    with open(results_file) as f:
-        results = json.load(f)["elastic_tensor"]
+    errors = analyzer.run_all()
+    results = read_results(analyzer)["elastic_tensor"]
     assert results["c44_entry"] == 44.0
     assert results["c11_entry"] == 170.0
+    assert errors["err_c44"] == pytest.approx(abs(results["c44"] - 44.0))
+    assert errors["err_c11"] == pytest.approx(abs(results["c11"] - 170.0))
+
+
+def test_run_all_gives_nan_errors_for_missing_references(
+    make_analyzer, no_image_export
+):
+    analyzer = make_analyzer(
+        cubic=True,
+        properties_to_calculate=[
+            "relax_structure",
+            "calculate_ev_curve",
+            "calculate_formation_energy",
+            "calculate_elastic_tensor",
+        ],
+    )
+    set_cu_chemical_potential(analyzer, analyzer.atoms)
+    analyzer.reference_data.update(
+        bulk_modulus_kv="na", formation_energy_peratom="na", elastic_tensor="na"
+    )
+    errors = analyzer.run_all()
+    for name in ("err_kv", "err_form", "err_c11", "err_c44"):
+        assert np.isnan(errors[name])
+
+
+def test_results_are_saved_before_plotting(make_analyzer, monkeypatch):
+    def fail(self, df):
+        raise RuntimeError("plot failed")
+
+    monkeypatch.setattr(gma.MaterialsAnalyzer, "plot_error_scorecard", fail)
+    analyzer = make_analyzer(properties_to_calculate=["relax_structure"])
+    with pytest.raises(RuntimeError, match="plot failed"):
+        analyzer.run_all()
+    assert "energy" in read_results(analyzer)
+
+
+def fake_reference_data(name):
+    """Stand-ins for the JARVIS vacancy and surface datasets."""
+    return {
+        "vacancydb": [
+            {"jid": "JVASP-TEST", "id": "JVASP-TEST_Cu_z", "ef": 1.25},
+        ],
+        "surfacedb": [
+            {
+                "name": "Surface-JVASP-TEST_miller_1_1_1_thickness_16_VASP_R2SCAN",
+                "surf_en": 2.0,
+            },
+            {
+                "name": "Surface-JVASP-TEST_miller_1_1_1_thickness_16_VASP_PBE",
+                "surf_en": 1.0,
+            },
+        ],
+    }[name]
+
+
+def test_run_all_matches_a_lone_vacancy_site_by_element(
+    make_analyzer, monkeypatch, no_image_export
+):
+    # Wyckoff letters depend on the cell's origin, so "a" and "z" still match
+    monkeypatch.setattr("chipsff.utils.cached_data", fake_reference_data)
+    analyzer = make_analyzer(
+        properties_to_calculate=["relax_structure", "analyze_defects"]
+    )
+    set_cu_chemical_potential(analyzer, analyzer.atoms)
+    errors = analyzer.run_all()
+    (vacancy,) = read_results(analyzer)["vacancy_energy"]
+    assert vacancy["name"] == "JVASP-TEST_Cu_a"
+    assert vacancy["reference_name"] == "JVASP-TEST_Cu_z"
+    assert vacancy["vac_en_entry"] == 1.25
+    assert errors["err_vac_en"] == pytest.approx(abs(vacancy["vac_en"] - 1.25))
+
+
+@pytest.mark.parametrize(
+    "settings, reference, tag",
+    [
+        ({}, 1.0, "VASP_PBE"),
+        ({"reference_functional": "R2SCAN"}, 2.0, "VASP_R2SCAN"),
+    ],
+)
+def test_run_all_uses_the_chosen_surface_functional(
+    make_analyzer, monkeypatch, no_image_export, settings, reference, tag
+):
+    monkeypatch.setattr("chipsff.utils.cached_data", fake_reference_data)
+    analyzer = make_analyzer(
+        properties_to_calculate=["relax_structure", "analyze_surfaces"],
+        surface_settings={"indices_list": [[1, 1, 1]], "layers": 2, **settings},
+    )
+    errors = analyzer.run_all()
+    (surface,) = read_results(analyzer)["surface_energy"]
+    assert surface["surf_en_entry"] == reference
+    assert surface["reference_name"].endswith(tag)
+    assert errors["err_surf_en"] == pytest.approx(
+        abs(surface["surf_en"] - reference)
+    )
+
+
+def test_surface_slab_is_built_from_the_relaxed_bulk(make_analyzer):
+    # Hold the slab still: a slab relaxed with its cell free would recover
+    # from the wrong lattice by itself, and hide which lattice it started from
+    energies = []
+    for a in (3.59, 3.70):
+        analyzer = make_analyzer(
+            a=a,
+            jid=f"JVASP-A{a}",
+            surface_settings={
+                "indices_list": [[1, 1, 1]],
+                "layers": 4,
+                "relaxation_settings": {"fmax": 1e6},
+            },
+        )
+        analyzer.analyze_surfaces(analyzer.relax_structure())
+        (surface,) = analyzer.job_info["all_surfaces"]
+        energies.append(surface["surf_en"])
+    assert energies[1] == pytest.approx(energies[0], abs=0.01)
+
+
+def test_surface_energy_matches_a_slab_made_with_ase_alone(make_analyzer):
+    analyzer = make_analyzer(
+        surface_settings={"indices_list": [[1, 1, 1]], "layers": 4}
+    )
+    analyzer.analyze_surfaces(analyzer.relax_structure())
+    (surface,) = analyzer.job_info["all_surfaces"]
+
+    cu = bulk("Cu", "fcc", a=3.59)
+    cu.calc = EMT()
+    FIRE(ExpCellFilter(cu), logfile=None).run(fmax=1e-4)
+    a0 = cu.cell.lengths()[0] * 2**0.5
+    slab = fcc111("Cu", size=(1, 1, 8), a=a0, vacuum=9)
+    slab.calc = EMT()
+    FIRE(slab, logfile=None).run(fmax=0.01)
+    excess = slab.get_potential_energy() - len(slab) * cu.get_potential_energy()
+    area = np.linalg.norm(np.cross(slab.cell[0], slab.cell[1]))
+    expected = excess / (2 * area) / (units.J / units.m**2)
+    assert surface["surf_en"] == pytest.approx(expected, abs=0.03)
+
+
+class ShiftedEMT(EMT):
+    """EMT with a constant added per atom, which energy differences must ignore.
+
+    EMT's Cu has almost no energy per atom, so with plain EMT a wrong number
+    of bulk units would hardly change a formation energy.
+    """
+
+    def calculate(self, *args, **kwargs):
+        super().calculate(*args, **kwargs)
+        for key in ("energy", "free_energy"):
+            self.results[key] -= 4.0 * len(self.atoms)
+
+
+def test_energy_differences_do_not_depend_on_the_energy_zero(
+    make_analyzer, monkeypatch
+):
+    results = []
+    for calculator in (EMT, ShiftedEMT):
+        monkeypatch.setattr(
+            gma, "setup_calculator", lambda calculator_type, settings: calculator()
+        )
+        analyzer = make_analyzer(
+            cubic=True,
+            surface_settings={"indices_list": [[1, 1, 1]], "layers": 2},
+        )
+        relaxed = analyzer.relax_structure()
+        analyzer.calculate_ev_curve(relaxed)
+        ase_atoms = relaxed.ase_converter()
+        ase_atoms.calc = calculator()
+        energy = ase_atoms.get_potential_energy() / len(ase_atoms)
+        analyzer.chemical_potentials = {"Cu": {"energy_emt": energy}}
+        formation = analyzer.calculate_formation_energy(relaxed)
+        analyzer.analyze_defects(relaxed)
+        analyzer.analyze_surfaces(relaxed)
+        (vacancy,) = analyzer.job_info["all_vacancies"]
+        (surface,) = analyzer.job_info["all_surfaces"]
+        results.append([formation, vacancy["vac_en"], surface["surf_en"]])
+    assert results[1] == pytest.approx(results[0], abs=1e-3)
 
 
 def test_tetragonal_shear_constants_match_stress_derivatives(make_analyzer):
@@ -233,6 +467,10 @@ def test_qha_matches_free_energy_minimum(tmp_path):
     expected = c * 0.0103643 / b
     middle = (alpha_temperatures > 50) & (alpha_temperatures < 250)
     assert np.allclose(alpha[middle], expected, rtol=0.05)
+    # Phonopy's own file pairs each value with the same temperature
+    written = np.loadtxt(tmp_path / "thermal_expansion.txt")
+    assert np.allclose(written[:, 0], alpha_temperatures[: len(written)])
+    assert np.allclose(written[:, 1], alpha[: len(written)])
 
 
 def test_thermal_expansion_keeps_fitted_equilibrium_energy(make_analyzer):
@@ -282,6 +520,17 @@ def test_kappa_values_are_phono3py_totals(make_analyzer):
         selected = np.isin(f["temperature"][:], temperatures)
         assert np.allclose(kappa_xx, f["kappa"][selected, 0])
     assert all(0 < k < 1e4 for k in kappa_xx)
+
+
+def test_kappa_xx_is_the_first_component_every_100_k(make_analyzer):
+    class ThermalConductivity:
+        temperatures = np.array([100.0, 150.0, 200.0])
+        kappa = np.arange(18.0).reshape(1, 3, 6)  # (sigmas, temperatures, 6)
+
+    analyzer = make_analyzer()
+    analyzer.process_phonon3_results(ThermalConductivity)
+    assert analyzer.job_info["temperatures"] == [100.0, 200.0]
+    assert analyzer.job_info["kappa_xx_values"] == [0.0, 12.0]
 
 
 def test_collect_data_separates_functionals_and_wyckoff_sites():
