@@ -122,6 +122,15 @@ def test_bulk_modulus_does_not_depend_on_cell_choice(make_analyzer):
     assert moduli[1] == pytest.approx(moduli[0], rel=0.01)
 
 
+def test_fine_bulk_modulus_does_not_depend_on_cell_choice(make_analyzer):
+    moduli = []
+    for cubic in (False, True):
+        analyzer = make_analyzer(cubic=cubic)
+        relaxed = analyzer.relax_structure()
+        moduli.append(analyzer.fine_ev_curve(relaxed)[4])
+    assert moduli[1] == pytest.approx(moduli[0], rel=0.01)
+
+
 class Float32EMT(EMT):
     """EMT returning its energy as np.float32, as some force fields do."""
 
@@ -142,6 +151,29 @@ def test_float32_energies_can_be_saved(make_analyzer, monkeypatch):
     assert isinstance(analyzer.job_info["final_energy_structure"], float)
     with open(analyzer.get_job_info_filename()) as f:
         assert json.load(f)["bulk_modulus"] > 0
+
+
+def test_c44_reference_is_element_4_4(make_analyzer, monkeypatch):
+    # JARVIS tensors are in VASP order (xx, yy, zz, xy, yz, zx): (3, 3) is C66
+    px = pytest.importorskip("plotly.graph_objects")
+    monkeypatch.setattr(px.Figure, "write_image", lambda *a, **k: None)
+    analyzer = make_analyzer(
+        cubic=True,
+        properties_to_calculate=[
+            "relax_structure",
+            "calculate_elastic_tensor",
+        ],
+    )
+    tensor = np.diag([170.0, 170.0, 170.0, 66.0, 44.0, 44.0]).tolist()
+    analyzer.reference_data["elastic_tensor"] = tensor
+    analyzer.run_all()
+    results_file = os.path.join(
+        analyzer.output_dir, f"{analyzer.jid}_emt_results.json"
+    )
+    with open(results_file) as f:
+        results = json.load(f)["elastic_tensor"]
+    assert results["c44_entry"] == 44.0
+    assert results["c11_entry"] == 170.0
 
 
 def test_tetragonal_shear_constants_match_stress_derivatives(make_analyzer):
