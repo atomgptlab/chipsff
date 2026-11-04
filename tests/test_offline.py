@@ -325,6 +325,7 @@ def test_match_vacancy_reference():
 def fake_vacancydb(name):
     assert name == "vacancydb"
     return [
+        {"jid": "JVASP-963", "id": "JVASP-963_Pd_a", "ef": 1.5},
         {"jid": "JVASP-1029", "id": "JVASP-1029_Ti_a", "ef": 2.9},
         {"jid": "JVASP-1029", "id": "JVASP-1029_Ti_d", "ef": 1.8},
     ]
@@ -345,6 +346,8 @@ def test_benchmark_vacancies_use_benchmark_ids(monkeypatch):
     }
     # Ti has two sites; the benchmark's reference is the first vacancydb entry
     assert selected == {"JVASP-963_Pd": 1.0, "JVASP-1029_Ti": 2.2}
+    # With only the other site left, there is nothing to compare with it
+    assert benchmark_vacancies(VACANCIES[1:2]) == []
 
 
 def test_leaderboard_files_use_benchmark_vacancy_ids(tmp_path, monkeypatch):
