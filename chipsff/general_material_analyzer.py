@@ -153,7 +153,8 @@ class MaterialsAnalyzer:
         self.surface_settings = surface_settings or {}
         # Fail now, not after the structures have relaxed
         check_surface_functional(
-            self.surface_settings.get("reference_functional", "PBE")
+            self.surface_settings.get("reference_functional", "PBE"),
+            setting="surface_settings.reference_functional",
         )
         self.defect_settings = defect_settings or {}
         self.film_index = film_index or "1_1_0"

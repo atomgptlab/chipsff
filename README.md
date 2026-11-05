@@ -151,7 +151,7 @@ surface database contains both, so only one is used for comparisons. Any other
 value is an error. The example uses `"R2SCAN"` because Si has no PBE surface
 references.
 
-Interface run: set `"film_id"`, `"substrate_id"`, `"film_index"`,
+Interface run: set `"film_jid"`, `"substrate_jid"`, `"film_index"`,
 `"substrate_index"` and `"properties_to_calculate": ["analyze_interfaces"]`.
 
 **Analyzer methods**: `relax_structure`, `calculate_formation_energy`,

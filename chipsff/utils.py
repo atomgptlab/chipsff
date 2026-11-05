@@ -26,11 +26,18 @@ SURFACE_REFERENCE_TAGS = {
 }
 
 
-def check_surface_functional(functional):
-    """Raise a ValueError unless `functional` has surface reference tags."""
-    if functional not in SURFACE_REFERENCE_TAGS:
+def check_surface_functional(functional, setting="surface_functional"):
+    """
+    Raise a ValueError unless `functional` has surface reference tags.
+
+    `setting` names the input the value came from, for the error message.
+    """
+    if (
+        not isinstance(functional, str)
+        or functional not in SURFACE_REFERENCE_TAGS
+    ):
         raise ValueError(
-            f"Unknown surface_functional {functional!r}; "
+            f"Unknown {setting} {functional!r}; "
             f"choose from {list(SURFACE_REFERENCE_TAGS)}"
         )
 

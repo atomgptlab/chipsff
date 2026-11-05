@@ -419,10 +419,9 @@ def main():
         "--ref-only",
         dest="ref_only",
         action="store_true",
-        help="only compute vacancies/surfaces for materials that have a "
-        "DFT reference in vacancydb/surfacedb (benchmark-fast: skips the "
-        "~3/4 of defect/surface relaxations that never enter the MAE; "
-        "the n=49/82 table is identical)",
+        help="no effect, kept so older commands still run: vacancies and "
+        "surfaces are already computed only for materials with a DFT "
+        "reference in vacancydb/surfacedb (see --all-materials)",
     )
     # ---- task selection (cheap -> expensive); default = full benchmark ----
     ap.add_argument(

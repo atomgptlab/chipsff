@@ -333,8 +333,11 @@ def test_run_all_uses_the_chosen_surface_functional(
 def test_unknown_surface_functional_fails_when_the_analyzer_is_created(
     make_analyzer,
 ):
-    with pytest.raises(ValueError, match="R2SCAN"):
+    # The message names the setting to fix
+    with pytest.raises(ValueError, match="surface_settings.reference_functional"):
         make_analyzer(surface_settings={"reference_functional": "r2scan"})
+    with pytest.raises(ValueError, match="R2SCAN"):
+        make_analyzer(surface_settings={"reference_functional": ["R2SCAN"]})
 
 
 def test_surface_slab_is_built_from_the_relaxed_bulk(make_analyzer):
@@ -562,6 +565,8 @@ def test_collect_data_separates_functionals_and_wyckoff_sites():
                 "name": "Surface-JVASP-1_miller_0_0_1_x1015_thickness_16_VASP_R2SCAN_R2SCAN",
                 "surf_en": 2.1,
             },
+            # Only an r2SCAN slab: no PBE reference for this surface
+            {"name": "Surface-JVASP-1_miller_1_1_0_thickness_16_VASP_R2SCAN", "surf_en": 1.5},
         ],
     )
     vacancies = get_vacancy_energy_entry("JVASP-1", collect_data(**datasets))
@@ -575,10 +580,13 @@ def test_collect_data_separates_functionals_and_wyckoff_sites():
     assert pbe["surf_en_entry"] == 1.0
     assert pbe["reference_name"].endswith("VASP_PBE_noDP")
 
-    (r2scan,) = get_surface_energy_entry(
+    r2scan = get_surface_energy_entry(
         "JVASP-1", collect_data(surface_functional="R2SCAN", **datasets)
     )
-    assert r2scan["surf_en_entry"] == 2.0
+    assert {s["name"]: s["surf_en_entry"] for s in r2scan} == {
+        "Surface-JVASP-1_miller_0_0_1": 2.0,
+        "Surface-JVASP-1_miller_1_1_0": 1.5,
+    }
 
 
 def test_match_vacancy_reference():
@@ -593,6 +601,13 @@ def test_match_vacancy_reference():
     computed = ["JVASP-3_Sm_a", "JVASP-3_Sm_d"]
     assert match_vacancy_reference("JVASP-3_Sm_a", computed, refs[1:]) == refs[1]
     assert match_vacancy_reference("JVASP-3_Sm_d", computed, refs[1:]) is None
+    # One computed Sm site against two references: no match without the letter
+    assert match_vacancy_reference("JVASP-3_Sm_d", ["JVASP-3_Sm_d"], refs[1:]) is None
+    # One P reference against two computed sites: only the exact letter matches
+    p_ref = [{"symbol": "JVASP-4_P_c", "vac_en_entry": 1.0}]
+    p_computed = ["JVASP-4_P_b", "JVASP-4_P_c"]
+    assert match_vacancy_reference("JVASP-4_P_c", p_computed, p_ref) == p_ref[0]
+    assert match_vacancy_reference("JVASP-4_P_b", p_computed, p_ref) is None
 
 
 def fake_vacancydb(name):
