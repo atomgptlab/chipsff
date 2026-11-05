@@ -330,6 +330,13 @@ def test_run_all_uses_the_chosen_surface_functional(
     )
 
 
+def test_unknown_surface_functional_fails_when_the_analyzer_is_created(
+    make_analyzer,
+):
+    with pytest.raises(ValueError, match="R2SCAN"):
+        make_analyzer(surface_settings={"reference_functional": "r2scan"})
+
+
 def test_surface_slab_is_built_from_the_relaxed_bulk(make_analyzer):
     # Hold the slab still: a slab relaxed with its cell free would recover
     # from the wrong lattice by itself, and hide which lattice it started from

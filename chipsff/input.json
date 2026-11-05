@@ -35,6 +35,7 @@
     ],
     "layers": 4,
     "vacuum": 18,
+    "reference_functional": "R2SCAN",
     "relaxation_settings": {
       "fmax": 0.05,
       "steps": 200,

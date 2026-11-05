@@ -26,6 +26,15 @@ SURFACE_REFERENCE_TAGS = {
 }
 
 
+def check_surface_functional(functional):
+    """Raise a ValueError unless `functional` has surface reference tags."""
+    if functional not in SURFACE_REFERENCE_TAGS:
+        raise ValueError(
+            f"Unknown surface_functional {functional!r}; "
+            f"choose from {list(SURFACE_REFERENCE_TAGS)}"
+        )
+
+
 def parse_surface_name(name):
     """
     Split a surfacedb name into its JID, Miller indices and calculation tag.
@@ -50,11 +59,7 @@ def collect_data(
     so vacancies on different Wyckoff sites stay separate. Surface references
     use only calculations done with `surface_functional` ("PBE" or "R2SCAN").
     """
-    if surface_functional not in SURFACE_REFERENCE_TAGS:
-        raise ValueError(
-            f"Unknown surface_functional {surface_functional!r}; "
-            f"choose from {list(SURFACE_REFERENCE_TAGS)}"
-        )
+    check_surface_functional(surface_functional)
     tags = SURFACE_REFERENCE_TAGS[surface_functional]
     if dft_3d is None:
         dft_3d = cached_data("dft_3d")

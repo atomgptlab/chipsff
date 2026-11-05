@@ -30,6 +30,7 @@ import contextlib
 from sklearn.metrics import mean_absolute_error
 from chipsff.calcs import setup_calculator
 from chipsff.utils import (
+    check_surface_functional,
     collect_data,
     log_job_info,
     save_dict_to_json,
@@ -150,6 +151,10 @@ class MaterialsAnalyzer:
         }
         self.properties_to_calculate = properties_to_calculate or []
         self.surface_settings = surface_settings or {}
+        # Fail now, not after the structures have relaxed
+        check_surface_functional(
+            self.surface_settings.get("reference_functional", "PBE")
+        )
         self.defect_settings = defect_settings or {}
         self.film_index = film_index or "1_1_0"
         self.substrate_index = substrate_index or "1_1_0"
