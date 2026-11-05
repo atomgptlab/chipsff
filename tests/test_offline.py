@@ -228,7 +228,7 @@ def test_c44_reference_is_element_4_4(make_analyzer, no_image_export):
             "calculate_elastic_tensor",
         ],
     )
-    tensor = np.diag([170.0, 170.0, 170.0, 66.0, 44.0, 44.0]).tolist()
+    tensor = np.diag([170.0, 171.0, 172.0, 66.0, 44.0, 45.0]).tolist()
     analyzer.reference_data["elastic_tensor"] = tensor
     errors = analyzer.run_all()
     results = read_results(analyzer)["elastic_tensor"]
@@ -412,7 +412,7 @@ def test_energy_differences_do_not_depend_on_the_energy_zero(
 
 def test_tetragonal_shear_constants_match_stress_derivatives(make_analyzer):
     # elastic's tetragonal fit paired each shear stress with the wrong strain
-    # and returned C44 = 0 for every tetragonal crystal. L1_0 CuAu (P4/mmm):
+    # and returned C44 = 0 for cells it treated as tetragonal. L1_0 CuAu (P4/mmm):
     atoms = Atoms(
         "CuAu",
         scaled_positions=[[0, 0, 0], [0.5, 0.5, 0.5]],
@@ -533,6 +533,12 @@ def test_kappa_xx_is_the_first_component_every_100_k(make_analyzer):
     assert analyzer.job_info["kappa_xx_values"] == [0.0, 12.0]
 
 
+def test_strontium_has_an_element_reference():
+    # SrTiO3 is in the benchmark; without this its formation energy is None
+    with open(os.path.join(os.path.dirname(gma.__file__), "chemical_potentials.json")) as f:
+        assert json.load(f)["Sr"]["jid"] == "JVASP-21208"
+
+
 def test_collect_data_separates_functionals_and_wyckoff_sites():
     datasets = dict(
         dft_3d=[{"jid": "JVASP-1"}],
@@ -608,6 +614,14 @@ def test_benchmark_vacancies_use_benchmark_ids(monkeypatch):
     assert selected == {"JVASP-963_Pd": 1.0, "JVASP-1029_Ti": 2.2}
     # With only the other site left, there is nothing to compare with it
     assert benchmark_vacancies(VACANCIES[1:2]) == []
+
+
+def test_benchmark_vacancies_need_no_dataset_when_there_are_none(monkeypatch):
+    def fail(name):
+        raise AssertionError(f"loaded {name}")
+
+    monkeypatch.setattr("chipsff.utils.cached_data", fail)
+    assert benchmark_vacancies([]) == []
 
 
 def test_leaderboard_files_use_benchmark_vacancy_ids(tmp_path, monkeypatch):

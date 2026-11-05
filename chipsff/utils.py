@@ -150,6 +150,9 @@ def benchmark_vacancies(vacancies):
     letter is dropped, and a vacancy is kept only if it was compared with
     that entry; another site's energy would not match the benchmark's value.
     """
+    if not vacancies:
+        return []
+
     first_reference = {}
     for entry in cached_data("vacancydb"):
         entry_id = "_".join(entry["id"].split("_")[:2])

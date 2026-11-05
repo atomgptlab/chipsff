@@ -88,8 +88,8 @@ class _Tee:
 def _tetragonal_equations(u):
     """elastic's tetragonal() stress-strain equations with the shear rows fixed.
 
-    elastic (5.2.5.3 and earlier) pairs sigma_yz with u_xz and sigma_xz with
-    u_yz. It applies only the yz shear to tetragonal cells, so with its
+    elastic (seen in 5.2.3.6 and 5.2.5.3) pairs sigma_yz with u_xz and sigma_xz
+    with u_yz. It applies only the yz shear to tetragonal cells, so with its
     equations the fit always returns C44 = 0. Constants are in elastic's
     order: C11, C33, C12, C13, C44, C66.
     """
