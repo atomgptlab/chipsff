@@ -56,7 +56,7 @@ cat > input_${jid}_${calculator}.json <<JSON
   "use_conventional_cell": true,
   "surface_settings": {
     "indices_list": [
-      [0, 1, 0],
+      [1, 1, 0],
       [0, 0, 1]
     ],
     "layers": 4,
