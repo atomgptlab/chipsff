@@ -15,6 +15,8 @@ from scipy.stats import pearsonr
 import zipfile
 from pathlib import Path
 
+from chipsff.utils import benchmark_vacancies
+
 # =========================
 # Leaderboard Generation with Total Time
 # =========================
@@ -171,26 +173,27 @@ def write_leaderboard_files(base_dir, output_dir):
                             ]
 
                 elif prop == "vac_en":
-                    for vac in results["vacancy_energy"]:
-                        vac_name = vac.get("name")
-                        if (
-                            vac_name
-                            and "vac_en_entry" in vac
-                            and "vac_en" in vac
-                        ):
-                            contributions.setdefault(
-                                (prop, calculator_type), []
-                            ).append(
-                                {
-                                    "id": vac_name,
-                                    "target": vac["vac_en_entry"],
-                                    "prediction": vac["vac_en"],
-                                    "total_time": total_time,  # Include total time in the record
-                                }
-                            )
-                            ground_truth[prop]["test"][vac_name] = vac[
-                                "vac_en_entry"
-                            ]
+                    vacancies = [
+                        vac
+                        for vac in results["vacancy_energy"]
+                        if vac.get("name")
+                        and "vac_en_entry" in vac
+                        and "vac_en" in vac
+                    ]
+                    for vac_id, vac in benchmark_vacancies(vacancies):
+                        contributions.setdefault(
+                            (prop, calculator_type), []
+                        ).append(
+                            {
+                                "id": vac_id,
+                                "target": vac["vac_en_entry"],
+                                "prediction": vac["vac_en"],
+                                "total_time": total_time,  # Include total time in the record
+                            }
+                        )
+                        ground_truth[prop]["test"][vac_id] = vac[
+                            "vac_en_entry"
+                        ]
 
     # Write contribution and ground truth files for each property and calculator_type
     Path(output_dir).mkdir(parents=True, exist_ok=True)

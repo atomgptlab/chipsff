@@ -710,5 +710,8 @@
         "energy_matgl": -10.80138,
         "energy_mace": -10.694583,
         "energy_sevennet": -10.684041
+    },
+    "Sr": {
+        "jid": "JVASP-21208"
     }
 }

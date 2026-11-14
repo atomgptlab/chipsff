@@ -1,0 +1,34 @@
+{
+  "jid_list": [
+    "JVASP-1002",
+    "JVASP-91",
+    "JVASP-8118",
+    "JVASP-1174",
+    "JVASP-30",
+    "JVASP-1183",
+    "JVASP-816",
+    "JVASP-1109"
+  ],
+  "calculator_types": ["slakonet"],
+  "chemical_potentials_file": "chemical_potentials.json",
+  "properties_to_calculate": [
+    "relax_structure",
+    "calculate_formation_energy"
+  ],
+  "use_conventional_cell": false,
+  "bulk_relaxation_settings": {
+    "filter_type": "ExpCellFilter",
+    "relaxation_settings": {
+      "fmax": 0.05,
+      "steps": 100,
+      "constant_volume": false
+    }
+  },
+  "calculator_settings": {
+    "slakonet": {
+      "model_name": "slakonet_v1a",
+      "kpoints_array": [4, 4, 4],
+      "device": "cuda"
+    }
+  }
+}

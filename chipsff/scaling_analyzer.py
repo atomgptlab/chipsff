@@ -67,16 +67,26 @@ class ScalingAnalyzer:
             for calc_type in self.scaling_calculators:
                 # Setup calculator
                 calc_settings = self.calculator_settings.get(calc_type, {})
-                calculator = setup_calculator(calc_type, calc_settings)
-                sc.calc = calculator
-                # Measure time
-                t1 = time.time()
-                en = sc.get_potential_energy() / len(sc)
-                t2 = time.time()
-                times_dict[calc_type].append(t2 - t1)
-                self.log(
-                    f"Calculator {calc_type}: Time taken {t2 - t1:.4f} s for {len(sc)} atoms"
-                )
+                # Measure time; tolerate per-size failures (e.g. OOM at large N)
+                try:
+                    calculator = setup_calculator(calc_type, calc_settings)
+                    sc.calc = calculator
+                    t1 = time.time()
+                    en = sc.get_potential_energy() / len(sc)
+                    t2 = time.time()
+                    times_dict[calc_type].append(t2 - t1)
+                    self.log(
+                        f"Calculator {calc_type}: Time taken {t2 - t1:.4f} s for {len(sc)} atoms"
+                    )
+                except Exception as exc:
+                    times_dict[calc_type].append(None)
+                    self.log(f"Calculator {calc_type}: FAILED at {len(sc)} atoms: {repr(exc)[:120]}")
+                    import gc, torch
+                    gc.collect()
+                    try:
+                        torch.cuda.empty_cache()
+                    except Exception:
+                        pass
         # Plot results
         plt.figure()
         for calc_type in self.scaling_calculators:

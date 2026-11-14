@@ -1,58 +1,108 @@
 #!/usr/bin/env python
 import json
+import math
+import numpy as np
+from jarvis.core.atoms import Atoms
 from jarvis.db.figshare import data
 
+# Load each jarvis dataset once per process. The zips are large (dft_3d ~48 MB)
+# and re-loading them for every material dominates a multi-material benchmark.
+_DATASET_CACHE = {}
 
-def collect_data():
-    # def collect_data(dft_3d, vacancydb, surface_data):
-    dft_3d = data("dft_3d")
-    vacancydb = data("vacancydb")
-    surface_data = data("surfacedb")
-    defect_ids = list(set([entry["jid"] for entry in vacancydb]))
-    surf_ids = list(
-        set(
-            [
-                entry["name"].split("Surface-")[1].split("_miller_")[0]
-                for entry in surface_data
-            ]
+
+def cached_data(name):
+    """Return a jarvis dataset, loading (and caching) it only once."""
+    if name not in _DATASET_CACHE:
+        _DATASET_CACHE[name] = data(name)
+    return _DATASET_CACHE[name]
+
+
+# surfacedb calculation tags accepted for each reference functional, most
+# preferred first. The database mixes PBE and r2SCAN slabs whose names differ
+# only after the Miller indices, so the functional has to be chosen explicitly.
+SURFACE_REFERENCE_TAGS = {
+    "PBE": ["VASP_PBE_noDP", "VASP_PBE", "VASP_PBE_DP"],
+    "R2SCAN": ["VASP_R2SCAN", "VASP_R2SCAN_R2SCAN"],
+}
+
+
+def check_surface_functional(functional, setting="surface_functional"):
+    """
+    Raise a ValueError unless `functional` has surface reference tags.
+
+    `setting` names the input the value came from, for the error message.
+    """
+    if (
+        not isinstance(functional, str)
+        or functional not in SURFACE_REFERENCE_TAGS
+    ):
+        raise ValueError(
+            f"Unknown {setting} {functional!r}; "
+            f"choose from {list(SURFACE_REFERENCE_TAGS)}"
         )
-    )
+
+
+def parse_surface_name(name):
+    """
+    Split a surfacedb name into its JID, Miller indices and calculation tag.
+
+    "Surface-JVASP-969_miller_0_0_1_x1015_thickness_16_VASP_R2SCAN_R2SCAN"
+    gives ("JVASP-969", "0_0_1", "VASP_R2SCAN_R2SCAN").
+    """
+    jid, rest = name.split("Surface-")[1].split("_miller_")
+    miller_part, thickness_part = rest.split("_thickness_")
+    miller = "_".join(miller_part.split("_")[:3])
+    tag = thickness_part.split("_", 1)[1]
+    return jid, miller, tag
+
+
+def collect_data(
+    dft_3d=None, vacancydb=None, surface_data=None, surface_functional="PBE"
+):
+    """
+    Attach vacancy and surface reference energies to each dft_3d entry.
+
+    Vacancy references are keyed by the vacancydb id ("JVASP-1029_Ti_a"),
+    so vacancies on different Wyckoff sites stay separate. Surface references
+    use only calculations done with `surface_functional` ("PBE" or "R2SCAN").
+    """
+    check_surface_functional(surface_functional)
+    tags = SURFACE_REFERENCE_TAGS[surface_functional]
+    if dft_3d is None:
+        dft_3d = cached_data("dft_3d")
+    if vacancydb is None:
+        vacancydb = cached_data("vacancydb")
+    if surface_data is None:
+        surface_data = cached_data("surfacedb")
+
+    vacancy_refs = {}
+    for vac_entry in vacancydb:
+        vacancy_refs.setdefault(vac_entry["jid"], {}).setdefault(
+            vac_entry["id"], vac_entry["ef"]
+        )
+
+    # For each surface keep the calculation with the most preferred tag
+    surface_refs = {}
+    for surf_entry in surface_data:
+        jid, miller, tag = parse_surface_name(surf_entry["name"])
+        if tag not in tags:
+            continue
+        key = f"Surface-{jid}_miller_{miller}"
+        refs = surface_refs.setdefault(jid, {})
+        if key not in refs or tags.index(tag) < tags.index(refs[key]["tag"]):
+            refs[key] = {
+                "tag": tag,
+                "surf_en": surf_entry["surf_en"],
+                "name": surf_entry["name"],
+            }
 
     aggregated_data = []
     for entry in dft_3d:
-        tmp = entry
-        tmp["vacancy"] = {}
-        tmp["surface"] = {}
-
-        # Check if the entry is in the defect dataset
-        if entry["jid"] in defect_ids:
-            for vac_entry in vacancydb:
-                if entry["jid"] == vac_entry["jid"]:
-                    tmp["vacancy"].setdefault(
-                        vac_entry["id"].split("_")[0]
-                        + "_"
-                        + vac_entry["id"].split("_")[1],
-                        vac_entry["ef"],
-                    )
-
-        # Check if the entry is in the surface dataset
-        if entry["jid"] in surf_ids:
-            for surf_entry in surface_data:
-                jid = (
-                    surf_entry["name"]
-                    .split("Surface-")[1]
-                    .split("_miller_")[0]
-                )
-                if entry["jid"] == jid:
-                    tmp["surface"].setdefault(
-                        "_".join(
-                            surf_entry["name"]
-                            .split("_thickness")[0]
-                            .split("_")[0:5]
-                        ),
-                        surf_entry["surf_en"],
-                    )
-
+        tmp = dict(entry)
+        tmp["vacancy"] = dict(vacancy_refs.get(entry["jid"], {}))
+        surfaces = surface_refs.get(entry["jid"], {})
+        tmp["surface"] = {k: v["surf_en"] for k, v in surfaces.items()}
+        tmp["surface_source"] = {k: v["name"] for k, v in surfaces.items()}
         aggregated_data.append(tmp)
 
     return aggregated_data
@@ -82,6 +132,56 @@ def get_vacancy_energy_entry(jid, aggregated_data):
     return f"JID {jid} not found in the data."
 
 
+def match_vacancy_reference(defect_name, computed_names, vacancy_entries):
+    """
+    Return the reference entry for a computed vacancy named
+    "<jid>_<element>_<wyckoff letter>", or None.
+
+    An exact id match is used when available. Otherwise, if the element has
+    a single site in both `computed_names` and `vacancy_entries`, those are
+    matched: the same site can get a different Wyckoff letter depending on
+    the cell's origin (e.g. 2c or 2d in hcp metals).
+    """
+    for entry in vacancy_entries:
+        if entry["symbol"] == defect_name:
+            return entry
+    element = defect_name.split("_")[-2]
+    refs = [e for e in vacancy_entries if e["symbol"].split("_")[-2] == element]
+    computed = [n for n in computed_names if n.split("_")[-2] == element]
+    if len(refs) == 1 and len(computed) == 1:
+        return refs[0]
+    return None
+
+
+def benchmark_vacancies(vacancies):
+    """
+    Return (benchmark id, vacancy) pairs for leaderboard files.
+
+    The CHIPS-FF benchmark names vacancies "<jid>_<element>" and uses the
+    first vacancydb entry for that element as the reference. So the Wyckoff
+    letter is dropped, and a vacancy is kept only if it was compared with
+    that entry; another site's energy would not match the benchmark's value.
+    """
+    if not vacancies:
+        return []
+
+    first_reference = {}
+    for entry in cached_data("vacancydb"):
+        entry_id = "_".join(entry["id"].split("_")[:2])
+        first_reference.setdefault(entry_id, entry["ef"])
+
+    selected = {}
+    for vacancy in vacancies:
+        vacancy_id = "_".join(vacancy["name"].split("_")[:2])
+        reference = first_reference.get(vacancy_id)
+        if (
+            reference is not None
+            and abs(vacancy["vac_en_entry"] - reference) < 1e-6
+        ):
+            selected.setdefault(vacancy_id, vacancy)
+    return list(selected.items())
+
+
 def get_surface_energy_entry(jid, aggregated_data):
     """
     Retrieve the surface energy entry (surf_en_entry) for a given jid.
@@ -96,10 +196,14 @@ def get_surface_energy_entry(jid, aggregated_data):
     for entry in aggregated_data:
         if entry["jid"] == jid:
             surface_data = entry.get("surface", {})
+            sources = entry.get("surface_source", {})
             if surface_data:
-                # Prepend 'Surface-JVASP-<jid>_' to the key for correct matching
                 return [
-                    {"name": f"{key}", "surf_en_entry": value}
+                    {
+                        "name": key,
+                        "surf_en_entry": value,
+                        "reference_name": sources.get(key),
+                    }
                     for key, value in surface_data.items()
                 ]
             else:
@@ -122,6 +226,48 @@ def save_dict_to_json(data_dict, filename):
 def load_dict_from_json(filename):
     with open(filename, "r") as f:
         return json.load(f)
+
+
+def strain_atoms(atoms, strain):
+    """
+    Scale the cell of JARVIS `atoms` by (1 + strain) along each axis,
+    moving the atoms with it.
+
+    jarvis Atoms.strain_atoms keeps Cartesian coordinates fixed when the
+    structure has them (as ase_to_atoms gives), which distorts every cell
+    with more than one atom.
+    """
+    lattice_mat = np.dot(np.array(atoms.lattice_mat), (1 + strain) * np.eye(3))
+    return Atoms(
+        lattice_mat=lattice_mat,
+        elements=atoms.elements,
+        coords=atoms.frac_coords,
+        cartesian=False,
+    )
+
+
+def reference_value(value):
+    """Return a JARVIS reference value as a float, or None if it is missing ("na")."""
+    try:
+        value = float(value)
+    except (TypeError, ValueError):
+        return None
+    return value if math.isfinite(value) else None
+
+
+def elastic_reference(tensor, i, j):
+    """Return element (i, j) of a JARVIS elastic tensor, or None if unavailable."""
+    try:
+        return reference_value(tensor[i][j])
+    except (TypeError, IndexError, KeyError):
+        return None
+
+
+def absolute_error(reference, prediction):
+    """Absolute error, or NaN when either value is missing."""
+    if reference is None or prediction is None:
+        return float("nan")
+    return abs(prediction - reference)
 
 
 def get_jid_list():

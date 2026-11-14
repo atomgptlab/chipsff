@@ -13,6 +13,11 @@ from chipsff.utils import (
 from chipsff.calcs import setup_calculator
 from chipsff.general_material_analyzer import MaterialsAnalyzer
 
+# Resolve relative to this file so the tests work from any working directory
+CHEM_POT_FILE = os.path.join(
+    os.path.dirname(__file__), "..", "chipsff", "chemical_potentials.json"
+)
+
 
 def test_chipsff_jid_list():
     jids = get_jid_list()
@@ -25,7 +30,7 @@ def test_materials_analyzer_initialization():
         jid="JVASP-1002",
         calculator_type="chgnet",
         properties_to_calculate=["relax_structure"],
-        chemical_potentials_file="../chipsff/chemical_potentials.json",  # Replace with actual path
+        chemical_potentials_file=CHEM_POT_FILE,
     )
     analyzer = MaterialsAnalyzer(
         jid=config.jid,
@@ -43,7 +48,7 @@ def test_relax_structure():
         jid="JVASP-1002",
         calculator_type="chgnet",
         properties_to_calculate=["relax_structure"],
-        chemical_potentials_file="../chipsff/chemical_potentials.json",  # Replace with actual path
+        chemical_potentials_file=CHEM_POT_FILE,
     )
     analyzer = MaterialsAnalyzer(
         jid=config.jid,
@@ -82,7 +87,8 @@ def test_get_vacancy_energy_entry():
 
 
 def test_get_surface_energy_entry():
-    aggregated_data = collect_data()
+    # JARVIS has only r2SCAN surface references for Si
+    aggregated_data = collect_data(surface_functional="R2SCAN")
     jid = "JVASP-1002"  # Use a JID known to have surface data
     surface_entries = get_surface_energy_entry(jid, aggregated_data)
     assert isinstance(surface_entries, list)
@@ -96,7 +102,7 @@ def test_calculate_ev_curve():
         jid="JVASP-1002",
         calculator_type="chgnet",
         properties_to_calculate=["relax_structure", "calculate_ev_curve"],
-        chemical_potentials_file="../chipsff/chemical_potentials.json",
+        chemical_potentials_file=CHEM_POT_FILE,
     )
     relaxed_atoms = analyzer.relax_structure()
     result = analyzer.calculate_ev_curve(relaxed_atoms)
@@ -114,7 +120,7 @@ def test_calculate_elastic_tensor():
             "relax_structure",
             "calculate_elastic_tensor",
         ],
-        chemical_potentials_file="../chipsff/chemical_potentials.json",
+        chemical_potentials_file=CHEM_POT_FILE,
     )
     relaxed_atoms = analyzer.relax_structure()
     elastic_tensor = analyzer.calculate_elastic_tensor(relaxed_atoms)
@@ -128,7 +134,7 @@ def test_run_phonon_analysis():
         jid="JVASP-1002",
         calculator_type="chgnet",
         properties_to_calculate=["relax_structure", "run_phonon_analysis"],
-        chemical_potentials_file="../chipsff/chemical_potentials.json",
+        chemical_potentials_file=CHEM_POT_FILE,
     )
     relaxed_atoms = analyzer.relax_structure()
     phonon, zpe = analyzer.run_phonon_analysis(relaxed_atoms)
@@ -141,7 +147,7 @@ def test_load_chemical_potentials():
     analyzer = MaterialsAnalyzer(
         jid="JVASP-1002",
         calculator_type="chgnet",
-        chemical_potentials_file="../chipsff/chemical_potentials.json",
+        chemical_potentials_file=CHEM_POT_FILE,
     )
     chemical_potentials = analyzer.load_chemical_potentials()
     assert isinstance(chemical_potentials, dict)
@@ -151,7 +157,7 @@ def test_calculate_element_chemical_potential():
     analyzer = MaterialsAnalyzer(
         jid="JVASP-1002",
         calculator_type="chgnet",
-        chemical_potentials_file="../chipsff/chemical_potentials.json",
+        chemical_potentials_file=CHEM_POT_FILE,
     )
     element = "Si"
     element_jid = "JVASP-1002"
@@ -165,7 +171,7 @@ def test_capture_fire_output():
     analyzer = MaterialsAnalyzer(
         jid="JVASP-1002",
         calculator_type="chgnet",
-        chemical_potentials_file="../chipsff/chemical_potentials.json",
+        chemical_potentials_file=CHEM_POT_FILE,
     )
     ase_atoms = analyzer.atoms.ase_converter()
     ase_atoms.calc = analyzer.calculator
@@ -195,7 +201,7 @@ def test_calculate_formation_energy():
             "relax_structure",
             "calculate_formation_energy",
         ],
-        chemical_potentials_file="../chipsff/chemical_potentials.json",
+        chemical_potentials_file=CHEM_POT_FILE,
     )
     analyzer.job_info["equilibrium_energy"] = -100.0
     relaxed_atoms = analyzer.relax_structure()
