@@ -182,7 +182,9 @@ contact daniel.wines@nist.gov or kamal.choudhary@nist.gov.
 See the [contribution guide](https://github.com/atomgptlab/jarvis/blob/master/Contribution.rst)
 and [code of conduct](https://github.com/atomgptlab/jarvis/blob/master/CODE_OF_CONDUCT.md).
 
-## Funding
 
-CHIPS Metrology Program, part of CHIPS for America, National Institute of
-Standards and Technology, U.S. Department of Commerce.
+## Funding
+=======
+Note: This project was originally developed under the github.com/usnistgov organization. New updates and developments will be carried out here.
+
+
