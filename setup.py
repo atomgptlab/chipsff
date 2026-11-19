@@ -12,14 +12,17 @@ setup(
     description="CHIPSFF: A force field analysis toolkit",
     long_description=long_description,
     long_description_content_type="text/markdown",
-    url="https://github.com/usnistgov/chipsff",
+    url="https://github.com/atomgptlab/chipsff",
     packages=find_packages(),
     install_requires=[
         "numpy>=1.22.0",
         "scipy>=1.6.3",
         "jarvis-tools>=2021.07.19",
         "pydantic_settings",
-        "pandas",  # Any other dependencies can be added here
+        "pandas",
+        "plotly",   # scorecard / EV-curve figures
+        "kaleido",  # static image export for plotly (fig.write_image)
+        "elastic",  # elastic-tensor calculation
         # "alignn",  # Uncomment if alignn becomes a required dependency
     ],
     classifiers=[
@@ -31,7 +34,10 @@ setup(
     entry_points={
         "console_scripts": [
             "run_chipsff=chipsff.run_chipsff:main",  # Allows `run_chipsff` to be called from the CLI
+            "run_chipsff_all=chipsff.run_main:main",  # full benchmark for one model
+            "chipsff_compile=chipsff.compile_tables:main",  # merge models -> Table 4/5
         ],
     },
+    package_data={"chipsff": ["*.json", "*.csv", "*.sh"]},
     include_package_data=True,
 )
